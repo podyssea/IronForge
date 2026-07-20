@@ -12,6 +12,7 @@ export type Exercise = {
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
 export type SessionRecord = { id: string; completedAt: string; workoutTitle: string; exercises: Exercise[]; volume: number };
+export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 
 function exercise(id: string, name: string, targetSets: number, repRange: [number, number], weight: number): SeedExercise {
@@ -68,6 +69,20 @@ export function generateFromStyle(days: number, existing: Workout[]): Workout[] 
     6: [...base, { ...upperA, id: "upper-a-2", title: "Day 5 · Upper A Repeat" }, { ...lowerA, id: "lower-a-2", title: "Day 6 · Lower A Repeat" }]
   };
   return withKnownLoads(templates[Math.max(2, Math.min(6, days))] ?? base, existing);
+}
+
+export function applyTrainingPhase(workouts: Workout[], phase: TrainingPhase): Workout[] {
+  if (phase === "hypertrophy") return workouts.map((workout) => ({ ...workout, focus: "Hypertrophy · muscle-building volume" }));
+  return workouts.map((workout) => ({ ...workout, focus: phase === "strength" ? "Strength · heavier, focused work" : "Deload · recover and rebuild", exercises: workout.exercises.map((exercise) => {
+    const targetSets = phase === "strength" ? Math.max(3, exercise.targetSets - (exercise.targetSets >= 4 ? 1 : 0)) : Math.max(1, Math.ceil(exercise.targetSets / 2));
+    const repRange: [number, number] = phase === "strength" ? [Math.max(3, exercise.repRange[0] - 3), Math.max(5, exercise.repRange[1] - 3)] : [exercise.repRange[0], Math.max(exercise.repRange[0], exercise.repRange[1] - 2)];
+    const scale = phase === "deload" ? 0.85 : 1;
+    const sets = Array.from({ length: targetSets }, (_, index) => {
+      const source = exercise.sets[index] ?? exercise.sets[exercise.sets.length - 1];
+      return { ...source, weight: Math.round(source.weight * scale * 2) / 2, reps: Math.min(source.reps, repRange[1]), completed: false };
+    });
+    return { ...exercise, targetSets, repRange, sets };
+  }) }));
 }
 
 export function sessionVolume(exercises: Exercise[]): number {

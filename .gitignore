@@ -1,4 +1,4 @@
 node_modules/
 .expo/
+expo-server*.log
 dist/
-npm-debug.log*
