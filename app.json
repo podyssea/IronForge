@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "IronForge",
+    "slug": "ironforge",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": { "supportsTablet": false },
+    "android": { "adaptiveIcon": { "backgroundColor": "#0B0E12" } }
+  }
+}
