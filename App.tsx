@@ -5,8 +5,8 @@ import { SessionRecord, Workout, generateFromStyle, initialFourDaySplit, session
 type Tab = "Today" | "Plan" | "Progress" | "Profile";
 type Phase = "Hypertrophy" | "Bulk" | "Maintenance" | "Deload";
 const KEY = "ironforge.v5";
-const bg = { flex: 1, backgroundColor: "#0B0E12" } as const;
-const card = { backgroundColor: "#151A20", padding: 16, borderRadius: 13, marginTop: 16 } as const;
+const bg = { flex: 1, backgroundColor: "#070A0E" } as const;
+const card = { backgroundColor: "#111820", padding: 18, borderRadius: 18, marginTop: 16, borderWidth: 1, borderColor: "#202C38" } as const;
 
 export default function App() {
   const [split, setSplit] = useState<Workout[]>(initialFourDaySplit);
@@ -39,10 +39,10 @@ export default function App() {
     {tab === "Profile" && <><Text style={green}>ATHLETE PROFILE</Text><Title text="Advanced physique training" /><View style={card}><Text style={white}>Advanced · 90-minute sessions</Text><Text style={muted}>Full commercial gym · balanced development</Text></View><Text style={[green,{marginTop:22}]}>TRAINING PHASE</Text>{(["Hypertrophy","Bulk","Maintenance","Deload"] as Phase[]).map(item => <Pressable key={item} onPress={() => setPhase(item)} style={[card,{borderWidth:phase === item ? 1 : 0,borderColor:"#9DE5A8"}]}><Text style={white}>{item}</Text><Text style={muted}>{phaseDescription(item)}</Text></Pressable>)}</>}
   </ScrollView><View style={{ position: "absolute", bottom: 82, left: 18, right: 18, flexDirection: "row", padding: 7, borderRadius: 18, backgroundColor: "#171E25", borderColor: "#2A3743", borderWidth: 1 }}>{(["Today", "Plan", "Progress", "Profile"] as Tab[]).map(x => <Pressable key={x} style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12, backgroundColor: tab === x ? "#25372C" : "transparent" }} onPress={() => { setTab(x); setPicker(false); }}><Text style={{ color: tab === x ? "#A6F3B0" : "#87939D", fontWeight: "900",fontSize:11 }}>{x}</Text></Pressable>)}</View></SafeAreaView>;
 }
-function Title({ text }: { text: string }) { return <Text style={{ color: "white", fontSize: 29, fontWeight: "900", marginTop: 6 }}>{text}</Text>; }
-const white = { color: "white", fontSize: 17, fontWeight: "800" } as const;
-const muted = { color: "#8D969D", marginTop: 5 } as const;
-const green = { color: "#9DE5A8", fontWeight: "900" } as const;
-const outline = { borderWidth: 1, borderColor: "#9DE5A8", padding: 14, borderRadius: 10, marginTop: 18, alignItems: "center" as const };
-const saveButton = { backgroundColor: "#9DE5A8", padding: 17, borderRadius: 11, alignItems: "center" as const, marginTop: 22 };
+function Title({ text }: { text: string }) { return <Text style={{ color: "#F4F7FA", fontSize: 32, fontWeight: "900", letterSpacing: -0.8, marginTop: 7 }}>{text}</Text>; }
+const white = { color: "#F4F7FA", fontSize: 17, fontWeight: "800" } as const;
+const muted = { color: "#93A0AC", marginTop: 6, lineHeight: 19 } as const;
+const green = { color: "#A8F5B4", fontWeight: "900", letterSpacing: 0.5 } as const;
+const outline = { borderWidth: 1, borderColor: "#314958", backgroundColor: "#0C1218", padding: 15, borderRadius: 14, marginTop: 20, alignItems: "center" as const };
+const saveButton = { backgroundColor: "#A8F5B4", padding: 18, borderRadius: 14, alignItems: "center" as const, marginTop: 24 };
 function phaseDescription(phase: Phase) { return { Hypertrophy: "Muscle-building volume, stable compounds, and accessory variation.", Bulk: "Higher-surplus mass phase with progressive overload and recovery focus.", Maintenance: "Moderate volume to preserve muscle and strength.", Deload: "Reduced volume and effort to restore recovery." }[phase]; }
