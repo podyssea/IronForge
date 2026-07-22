@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, generateFromStyle, initialFourDaySplit, isSessionComplete, progression, sessionVolume, setValidationError, startActiveSession } from "./training";
+import { applySessionPerformance, applyTrainingPhase, completeActiveSession, generateFromStyle, initialFourDaySplit, isSessionComplete, progression, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession } from "./training";
+import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
   it.each([2, 3, 4, 5])("builds a %i-day program", (days) => {
@@ -108,5 +109,27 @@ describe("progression", () => {
 
   it("recommends holding until the rep target is reached", () => {
     expect(progression(initialFourDaySplit()[0].exercises[0])).toMatch(/Progress when/);
+  });
+});
+
+describe("exercise replacement", () => {
+  it("replaces only the requested slot and retains its prescription", () => {
+    const workouts = initialFourDaySplit();
+    const original = workouts[0].exercises[0];
+    const replacement = getExerciseDefinition("dumbbell-bench");
+    expect(replacement).toBeDefined();
+    const updated = replaceWorkoutExercise(workouts, workouts[0].id, original.id, replacement!);
+    expect(updated[0].exercises[0].id).toBe("dumbbell-bench");
+    expect(updated[0].exercises[0].targetSets).toBe(original.targetSets);
+    expect(updated[0].exercises[0].repRange).toEqual(original.repRange);
+    expect(updated[1]).toBe(workouts[1]);
+  });
+
+  it("reuses known performance for a replacement already in the program", () => {
+    const workouts = initialFourDaySplit();
+    const known = workouts[0].exercises.find((exercise) => exercise.id === "machine-chest")!;
+    known.lastWeight = 92.5;
+    const updated = replaceWorkoutExercise(workouts, workouts[2].id, "incline-machine", { id: known.id, name: known.name });
+    expect(updated[2].exercises[0].lastWeight).toBe(92.5);
   });
 });

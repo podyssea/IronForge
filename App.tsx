@@ -1,14 +1,16 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, applySessionPerformance, applyTrainingPhase, completeActiveSession, generateFromStyle, initialFourDaySplit, isSessionComplete, SessionRecord, setValidationError, SetLog, startActiveSession, TrainingPhase, Workout } from "./src/domain/training";
+import { ActiveSession, applySessionPerformance, applyTrainingPhase, completeActiveSession, generateFromStyle, initialFourDaySplit, isSessionComplete, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, TrainingPhase, Workout } from "./src/domain/training";
+import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
+import { ExerciseLibraryScreen } from "./src/screens/ExerciseLibraryScreen";
 import { loadAppState, saveAppState } from "./src/storage/appStorage";
 import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "./src/domain/coaching";
 
-type AppView = "log" | "history" | "program";
+type AppView = "log" | "history" | "program" | "library";
 
 export default function App() {
   const [workouts, setWorkouts] = useState<Workout[]>(initialFourDaySplit);
@@ -21,6 +23,7 @@ export default function App() {
   const [coachingProfile, setCoachingProfile] = useState<CoachingProfile>(DEFAULT_COACHING_PROFILE);
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [replacementExerciseId, setReplacementExerciseId] = useState<string | null>(null);
 
   useEffect(() => {
     loadAppState().then((state) => {
@@ -108,11 +111,25 @@ export default function App() {
     Alert.alert("Program updated", `${trainingDays}-day ${phase} plan is ready. Your logged loads were retained.`);
   }
 
+  function openReplacement(exerciseId: string) {
+    setReplacementExerciseId(exerciseId);
+    setView("library");
+  }
+
+  function chooseReplacement(replacement: ExerciseDefinition) {
+    if (!replacementExerciseId) return;
+    const replaced = displayedWorkout.exercises.find((exercise) => exercise.id === replacementExerciseId);
+    setWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement));
+    setReplacementExerciseId(null);
+    setView("log");
+    Alert.alert("Exercise replaced", `${replaced?.name ?? "Exercise"} was replaced with ${replacement.name}. Your set and rep prescription was retained.`);
+  }
+
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
-      <View style={styles.viewTabs}>{(["log", "history", "program"] as AppView[]).map((item) => <Pressable key={item} onPress={() => setView(item)} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} phase={phase} onDays={setTrainingDays} onPhase={setPhase} onApply={applyProgram} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} />}
+      <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
+      {view === "history" ? <HistoryScreen records={records} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} phase={phase} onDays={setTrainingDays} onPhase={setPhase} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} />}
     </ScrollView>
   </SafeAreaView>;
 }
