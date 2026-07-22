@@ -12,6 +12,7 @@ export type Exercise = {
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
 export type SessionRecord = { id: string; completedAt: string; workoutTitle: string; exercises: Exercise[]; volume: number };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 
@@ -87,6 +88,57 @@ export function applyTrainingPhase(workouts: Workout[], phase: TrainingPhase): W
 
 export function sessionVolume(exercises: Exercise[]): number {
   return exercises.reduce((total, exercise) => total + exercise.sets.filter((set) => set.completed).reduce((sum, set) => sum + set.weight * set.reps, 0), 0);
+}
+
+export function startActiveSession(workout: Workout, now = new Date()): ActiveSession {
+  return {
+    id: String(now.getTime()),
+    workoutId: workout.id,
+    workoutTitle: workout.title,
+    focus: workout.focus,
+    startedAt: now.toISOString(),
+    exercises: workout.exercises.map((exercise) => ({
+      ...exercise,
+      sets: exercise.sets.map((set) => ({ ...set, completed: false })),
+    })),
+  };
+}
+
+export function completeActiveSession(session: ActiveSession, now = new Date()): SessionRecord {
+  return {
+    id: session.id,
+    completedAt: now.toISOString(),
+    workoutTitle: session.workoutTitle,
+    exercises: session.exercises.map((exercise) => {
+      const completed = exercise.sets.filter((set) => set.completed);
+      const latest = completed[completed.length - 1];
+      return {
+        ...exercise,
+        lastWeight: latest?.weight ?? exercise.lastWeight,
+        lastReps: latest?.reps ?? exercise.lastReps,
+        sets: exercise.sets.map((set) => ({ ...set })),
+      };
+    }),
+    volume: sessionVolume(session.exercises),
+  };
+}
+
+export function applySessionPerformance(workouts: Workout[], session: ActiveSession): Workout[] {
+  return workouts.map((workout) => workout.id !== session.workoutId ? workout : {
+    ...workout,
+    exercises: workout.exercises.map((exercise) => {
+      const performed = session.exercises.find((item) => item.id === exercise.id);
+      const completed = performed?.sets.filter((set) => set.completed) ?? [];
+      const latest = completed[completed.length - 1];
+      if (!latest) return exercise;
+      return {
+        ...exercise,
+        lastWeight: latest.weight,
+        lastReps: latest.reps,
+        sets: exercise.sets.map((set, index) => ({ ...(performed?.sets[index] ?? set), completed: false })),
+      };
+    }),
+  });
 }
 
 export function progression(exercise: Exercise): string {
