@@ -52,15 +52,31 @@ describe("storage migrations", () => {
     expect(migrated?.coachingDecisions).toEqual([]);
   });
 
-  it("restores schema version 5 coaching decisions", () => {
+  it("replaces schema version 5 data with the personal baseline once", () => {
     const workouts = initialFourDaySplit();
     const coachingDecisions = [{ recommendationId: "upper-a:incline-smith:1", decidedAt: "2026-01-01T10:00:00.000Z", outcome: "modified" as const, selectedWeight: 37.5 }];
     const migrated = migrateStoredState({ schemaVersion: 5, workouts, records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions });
-    expect(migrated?.coachingDecisions).toEqual(coachingDecisions);
+    expect(migrated?.workouts[0].exercises[0].lastWeight).toBe(90);
+    expect(migrated?.records).toHaveLength(2);
+    expect(migrated?.coachingDecisions).toEqual([]);
+  });
+
+  it("corrects a schema version 6 import that included future sessions", () => {
+    const workouts = initialFourDaySplit();
+    const migrated = migrateStoredState({ schemaVersion: 6, workouts, records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] });
+    expect(migrated?.workouts[0].exercises[0].lastWeight).toBe(90);
+    expect(migrated?.records.map((record) => record.sourceWorkoutId)).toEqual(["lower-a", "upper-a"]);
+  });
+
+  it("restores schema version 7 without repeating the personal import", () => {
+    const workouts = initialFourDaySplit();
+    const migrated = migrateStoredState({ schemaVersion: 7, workouts, records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] });
+    expect(migrated?.workouts).toEqual(workouts);
+    expect(migrated?.records).toEqual([]);
   });
 
   it("rejects malformed state", () => {
-    expect(migrateStoredState({ schemaVersion: 5, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] })).toBeNull();
+    expect(migrateStoredState({ schemaVersion: 7, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] })).toBeNull();
     expect(migrateStoredState({ schemaVersion: 1, workouts: initialFourDaySplit(), records: "invalid", program })).toBeNull();
   });
 
