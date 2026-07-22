@@ -4,8 +4,6 @@ import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput
 import { applyTrainingPhase, Exercise, generateFromStyle, initialFourDaySplit, progression, sessionVolume, SessionRecord, TrainingPhase, Workout } from "./src/domain/training";
 import { loadAppState, saveAppState } from "./src/storage/appStorage";
 
-const WORKOUT_DAYS = ["MON", "TUE", "THU", "FRI"];
-
 export default function App() {
   const [workouts, setWorkouts] = useState<Workout[]>(initialFourDaySplit);
   const [selected, setSelected] = useState(0);
@@ -39,13 +37,14 @@ export default function App() {
       });
   }, [workouts, records, trainingDays, phase, loaded]);
 
-  const workout = workouts[selected];
+  const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
+  const workout = workouts[selectedWorkoutIndex];
   const completedSets = workout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed).length, 0);
   const totalSets = workout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const volume = useMemo(() => sessionVolume(workout.exercises), [workout]);
 
   function updateSet(exerciseId: string, setIndex: number, changes: Partial<Exercise["sets"][number]>) {
-    setWorkouts((current) => current.map((item, workoutIndex) => workoutIndex !== selected ? item : {
+    setWorkouts((current) => current.map((item, workoutIndex) => workoutIndex !== selectedWorkoutIndex ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : {
         ...exercise,
@@ -62,7 +61,7 @@ export default function App() {
       return { ...exercise, lastWeight: latest?.weight ?? exercise.lastWeight, lastReps: latest?.reps ?? exercise.lastReps, sets: exercise.sets.map((set) => ({ ...set })) };
     }), volume };
     setRecords((current) => [record, ...current]);
-    setWorkouts((current) => current.map((item, workoutIndex) => workoutIndex !== selected ? item : {
+    setWorkouts((current) => current.map((item, workoutIndex) => workoutIndex !== selectedWorkoutIndex ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => {
         const completed = exercise.sets.filter((set) => set.completed);
@@ -88,7 +87,7 @@ export default function App() {
       {view === "history" ? <History records={records} /> : view === "program" ? <ProgramBuilder trainingDays={trainingDays} phase={phase} onDays={setTrainingDays} onPhase={setPhase} onApply={applyProgram} /> : <>
       <View style={styles.topline}><Text style={styles.brand}>IRON<Text style={styles.accent}>FORGE</Text></Text><Text style={styles.live}>● LIVE LOG</Text></View>
       <Text style={styles.kicker}>TODAY'S TRAINING</Text><Text style={styles.title}>{workout.title.split(" · ").pop()}</Text>
-      <View style={styles.dayTabs}>{WORKOUT_DAYS.map((day, index) => <Pressable key={day} onPress={() => setSelected(index)} style={[styles.day, selected === index && styles.dayActive]}><Text style={[styles.dayText, selected === index && styles.dayTextActive]}>{day}</Text></Pressable>)}</View>
+      <View style={styles.dayTabs}>{workouts.map((item, index) => <Pressable key={item.id} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index }} accessibilityLabel={`Day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => setSelected(index)} style={[styles.day, selectedWorkoutIndex === index && styles.dayActive]}><Text style={[styles.dayText, selectedWorkoutIndex === index && styles.dayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
       <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{volume.toLocaleString()}</Text><Text style={styles.summaryLabel}>KG VOLUME</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{workout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
       {workout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} onChange={updateSet} />)}
       <Pressable style={styles.finish} onPress={finishWorkout}><Text style={styles.finishText}>FINISH WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable>
