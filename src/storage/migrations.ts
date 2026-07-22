@@ -1,8 +1,9 @@
 import { ActiveSession, Exercise, SessionRecord, TrainingPhase, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
+import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -23,6 +24,8 @@ type StoredAppStateV2 = Omit<AppState, "coachingProfile" | "coachingDecisions"> 
 export type StoredAppStateV3 = Omit<AppState, "coachingDecisions"> & { schemaVersion: 3 };
 export type StoredAppStateV4 = Omit<AppState, "coachingDecisions"> & { schemaVersion: 4 };
 export type StoredAppStateV5 = AppState & { schemaVersion: 5 };
+export type StoredAppStateV6 = AppState & { schemaVersion: 6 };
+export type StoredAppStateV7 = AppState & { schemaVersion: 7 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
@@ -36,7 +39,25 @@ export function migrateStoredState(value: unknown): AppState | null {
     case 4:
       return isStoredAppStateV4(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: [] } : null;
     case 5:
-      return isStoredAppStateV5(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
+      return isStoredAppStateV5(value) ? {
+        workouts: personalBaselineWorkouts(),
+        records: personalBaselineRecords(),
+        program: { trainingDays: 4, phase: "hypertrophy" },
+        activeSession: null,
+        coachingProfile: value.coachingProfile,
+        coachingDecisions: [],
+      } : null;
+    case 6:
+      return isStoredAppStateV6(value) ? {
+        workouts: personalBaselineWorkouts(),
+        records: personalBaselineRecords(),
+        program: { trainingDays: 4, phase: "hypertrophy" },
+        activeSession: null,
+        coachingProfile: value.coachingProfile,
+        coachingDecisions: [],
+      } : null;
+    case 7:
+      return isStoredAppStateV7(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
     default:
       console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -97,6 +118,28 @@ function isStoredAppStateV4(value: Record<string, unknown>): value is StoredAppS
 
 function isStoredAppStateV5(value: Record<string, unknown>): value is StoredAppStateV5 {
   return value.schemaVersion === 5
+    && isWorkoutArray(value.workouts)
+    && isSessionRecordArray(value.records)
+    && isProgramPreferences(value.program)
+    && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
+    && isCoachingProfile(value.coachingProfile)
+    && Array.isArray(value.coachingDecisions)
+    && value.coachingDecisions.every(isCoachingDecision);
+}
+
+function isStoredAppStateV6(value: Record<string, unknown>): value is StoredAppStateV6 {
+  return value.schemaVersion === 6
+    && isWorkoutArray(value.workouts)
+    && isSessionRecordArray(value.records)
+    && isProgramPreferences(value.program)
+    && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
+    && isCoachingProfile(value.coachingProfile)
+    && Array.isArray(value.coachingDecisions)
+    && value.coachingDecisions.every(isCoachingDecision);
+}
+
+function isStoredAppStateV7(value: Record<string, unknown>): value is StoredAppStateV7 {
+  return value.schemaVersion === 7
     && isWorkoutArray(value.workouts)
     && isSessionRecordArray(value.records)
     && isProgramPreferences(value.program)

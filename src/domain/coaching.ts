@@ -41,7 +41,7 @@ export function buildWorkoutRecommendations(workout: Workout, records: SessionRe
   const decided = new Set(decisions.map((decision) => decision.recommendationId));
   return workout.exercises.flatMap((exercise) => {
     const performances = records
-      .filter((record) => record.exercises.some((item) => item.id === exercise.id))
+      .filter((record) => record.sourceWorkoutId === workout.id && record.exercises.some((item) => item.id === exercise.id))
       .slice(0, 3)
       .map((record) => ({ record, exercise: record.exercises.find((item) => item.id === exercise.id) as Exercise }));
     if (!performances.length) return [];
