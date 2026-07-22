@@ -87,7 +87,17 @@ export function applyTrainingPhase(workouts: Workout[], phase: TrainingPhase): W
 }
 
 export function sessionVolume(exercises: Exercise[]): number {
-  return exercises.reduce((total, exercise) => total + exercise.sets.filter((set) => set.completed).reduce((sum, set) => sum + set.weight * set.reps, 0), 0);
+  return exercises.reduce((total, exercise) => total + exercise.sets.filter((set) => set.completed && !setValidationError(set)).reduce((sum, set) => sum + set.weight * set.reps, 0), 0);
+}
+
+export function setValidationError(set: SetLog): string | null {
+  if (!Number.isFinite(set.weight) || set.weight < 0) return "Weight must be zero or greater";
+  if (!Number.isInteger(set.reps) || set.reps < 1) return "Enter at least 1 rep";
+  return null;
+}
+
+export function isSessionComplete(exercises: Exercise[]): boolean {
+  return exercises.every((exercise) => exercise.sets.every((set) => set.completed && !setValidationError(set)));
 }
 
 export function startActiveSession(workout: Workout, now = new Date()): ActiveSession {
@@ -110,13 +120,13 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
     completedAt: now.toISOString(),
     workoutTitle: session.workoutTitle,
     exercises: session.exercises.map((exercise) => {
-      const completed = exercise.sets.filter((set) => set.completed);
+      const completed = exercise.sets.filter((set) => set.completed && !setValidationError(set));
       const latest = completed[completed.length - 1];
       return {
         ...exercise,
         lastWeight: latest?.weight ?? exercise.lastWeight,
         lastReps: latest?.reps ?? exercise.lastReps,
-        sets: exercise.sets.map((set) => ({ ...set })),
+        sets: exercise.sets.map((set) => ({ ...set, completed: set.completed && !setValidationError(set) })),
       };
     }),
     volume: sessionVolume(session.exercises),
@@ -128,7 +138,7 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
     ...workout,
     exercises: workout.exercises.map((exercise) => {
       const performed = session.exercises.find((item) => item.id === exercise.id);
-      const completed = performed?.sets.filter((set) => set.completed) ?? [];
+      const completed = performed?.sets.filter((set) => set.completed && !setValidationError(set)) ?? [];
       const latest = completed[completed.length - 1];
       if (!latest) return exercise;
       return {
