@@ -4,6 +4,7 @@ import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } fr
 import { ActiveSession, applySessionPerformance, completeActiveSession, initialFourDaySplit, isSessionComplete, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, TrainingPhase, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram } from "./src/domain/programGenerator";
+import { deleteSessionRecord } from "./src/domain/sessionJournal";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
@@ -135,11 +136,15 @@ export default function App() {
     }));
   }
 
+  function updateRecordNotes(recordId: string, notes: string) {
+    setRecords((current) => current.map((record) => record.id === recordId ? { ...record, notes } : record));
+  }
+
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} />}
+      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} />}
     </ScrollView>
   </SafeAreaView>;
 }

@@ -12,8 +12,8 @@ export type Exercise = {
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
-export type SessionRecord = { id: string; completedAt: string; workoutTitle: string; exercises: Exercise[]; volume: number };
-export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; exercises: Exercise[] };
+export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; workoutTitle: string; exercises: Exercise[]; volume: number };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 
@@ -108,6 +108,7 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     workoutTitle: workout.title,
     focus: workout.focus,
     startedAt: now.toISOString(),
+    notes: "",
     exercises: workout.exercises.map((exercise) => ({
       ...exercise,
       sets: exercise.sets.map((set) => ({ ...set, completed: false })),
@@ -118,7 +119,11 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
 export function completeActiveSession(session: ActiveSession, now = new Date()): SessionRecord {
   return {
     id: session.id,
+    sourceWorkoutId: session.workoutId,
+    startedAt: session.startedAt,
     completedAt: now.toISOString(),
+    durationSeconds: Math.max(0, Math.round((now.getTime() - new Date(session.startedAt).getTime()) / 1000)),
+    notes: session.notes,
     workoutTitle: session.workoutTitle,
     exercises: session.exercises.map((exercise) => {
       const completed = exercise.sets.filter((set) => set.completed && !setValidationError(set));
