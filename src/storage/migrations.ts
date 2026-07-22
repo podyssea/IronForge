@@ -1,8 +1,8 @@
 import { ActiveSession, Exercise, SessionRecord, TrainingPhase, Workout } from "../domain/training";
-import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
+import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -15,24 +15,28 @@ export type AppState = {
   program: ProgramPreferences;
   activeSession: ActiveSession | null;
   coachingProfile: CoachingProfile;
+  coachingDecisions: CoachingDecision[];
 };
 
-type StoredAppStateV1 = Omit<AppState, "activeSession" | "coachingProfile"> & { schemaVersion: 1 };
-type StoredAppStateV2 = Omit<AppState, "coachingProfile"> & { schemaVersion: 2 };
-export type StoredAppStateV3 = AppState & { schemaVersion: 3 };
-export type StoredAppStateV4 = AppState & { schemaVersion: 4 };
+type StoredAppStateV1 = Omit<AppState, "activeSession" | "coachingProfile" | "coachingDecisions"> & { schemaVersion: 1 };
+type StoredAppStateV2 = Omit<AppState, "coachingProfile" | "coachingDecisions"> & { schemaVersion: 2 };
+export type StoredAppStateV3 = Omit<AppState, "coachingDecisions"> & { schemaVersion: 3 };
+export type StoredAppStateV4 = Omit<AppState, "coachingDecisions"> & { schemaVersion: 4 };
+export type StoredAppStateV5 = AppState & { schemaVersion: 5 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
   switch (value.schemaVersion) {
     case 1:
-      return isStoredAppStateV1(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE } } : null;
+      return isStoredAppStateV1(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [] } : null;
     case 2:
-      return isStoredAppStateV2(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: { ...DEFAULT_COACHING_PROFILE } } : null;
+      return isStoredAppStateV2(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [] } : null;
     case 3:
-      return isStoredAppStateV3(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile } : null;
+      return isStoredAppStateV3(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: [] } : null;
     case 4:
-      return isStoredAppStateV4(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile } : null;
+      return isStoredAppStateV4(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: [] } : null;
+    case 5:
+      return isStoredAppStateV5(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
     default:
       console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -89,6 +93,26 @@ function isStoredAppStateV4(value: Record<string, unknown>): value is StoredAppS
     && isProgramPreferences(value.program)
     && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
     && isCoachingProfile(value.coachingProfile);
+}
+
+function isStoredAppStateV5(value: Record<string, unknown>): value is StoredAppStateV5 {
+  return value.schemaVersion === 5
+    && isWorkoutArray(value.workouts)
+    && isSessionRecordArray(value.records)
+    && isProgramPreferences(value.program)
+    && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
+    && isCoachingProfile(value.coachingProfile)
+    && Array.isArray(value.coachingDecisions)
+    && value.coachingDecisions.every(isCoachingDecision);
+}
+
+function isCoachingDecision(value: unknown): value is CoachingDecision {
+  return isRecord(value)
+    && typeof value.recommendationId === "string"
+    && typeof value.decidedAt === "string"
+    && (value.outcome === "accepted" || value.outcome === "modified" || value.outcome === "rejected")
+    && isFiniteNumber(value.selectedWeight)
+    && value.selectedWeight >= 0;
 }
 
 function normalizeRecords(records: SessionRecord[]): SessionRecord[] {

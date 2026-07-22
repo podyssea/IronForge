@@ -13,6 +13,7 @@ describe("storage migrations", () => {
     expect(migrated?.program).toEqual(program);
     expect(migrated?.activeSession).toBeNull();
     expect(migrated?.coachingProfile).toEqual(DEFAULT_COACHING_PROFILE);
+    expect(migrated?.coachingDecisions).toEqual([]);
   });
 
   it("restores a valid schema version 2 active session", () => {
@@ -48,10 +49,18 @@ describe("storage migrations", () => {
     activeSession.notes = "In progress";
     const migrated = migrateStoredState({ schemaVersion: 4, workouts, records: [], program, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE });
     expect(migrated?.activeSession?.notes).toBe("In progress");
+    expect(migrated?.coachingDecisions).toEqual([]);
+  });
+
+  it("restores schema version 5 coaching decisions", () => {
+    const workouts = initialFourDaySplit();
+    const coachingDecisions = [{ recommendationId: "upper-a:incline-smith:1", decidedAt: "2026-01-01T10:00:00.000Z", outcome: "modified" as const, selectedWeight: 37.5 }];
+    const migrated = migrateStoredState({ schemaVersion: 5, workouts, records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions });
+    expect(migrated?.coachingDecisions).toEqual(coachingDecisions);
   });
 
   it("rejects malformed state", () => {
-    expect(migrateStoredState({ schemaVersion: 4, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE })).toBeNull();
+    expect(migrateStoredState({ schemaVersion: 5, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] })).toBeNull();
     expect(migrateStoredState({ schemaVersion: 1, workouts: initialFourDaySplit(), records: "invalid", program })).toBeNull();
   });
 

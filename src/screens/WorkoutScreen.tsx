@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ExerciseCard } from "../components/ExerciseCard";
+import { CoachPanel } from "../components/CoachPanel";
+import { CoachingRecommendation } from "../domain/coaching";
 import { ActiveSession, sessionVolume, setValidationError, SetLog, Workout } from "../domain/training";
 
 type WorkoutScreenProps = {
@@ -14,9 +16,12 @@ type WorkoutScreenProps = {
   onCancel: () => void;
   onReplaceExercise: (id: string) => void;
   onNotesChange: (notes: string) => void;
+  recommendations: CoachingRecommendation[];
+  onApplyRecommendation: (recommendation: CoachingRecommendation, weight: number) => void;
+  onRejectRecommendation: (recommendation: CoachingRecommendation) => void;
 };
 
-export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, onSelect, onBegin, onSetChange, onFinish, onCancel, onReplaceExercise, onNotesChange }: WorkoutScreenProps) {
+export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, onSelect, onBegin, onSetChange, onFinish, onCancel, onReplaceExercise, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation }: WorkoutScreenProps) {
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed && !setValidationError(set)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const volume = sessionVolume(displayedWorkout.exercises);
@@ -27,6 +32,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     <View style={styles.dayTabs}>{workouts.map((item, index) => <Pressable key={item.id} disabled={Boolean(activeSession)} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index, disabled: Boolean(activeSession) }} accessibilityLabel={`Day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => onSelect(index)} style={[styles.day, selectedWorkoutIndex === index && styles.dayActive, activeSession && selectedWorkoutIndex !== index && styles.dayDisabled]}><Text style={[styles.dayText, selectedWorkoutIndex === index && styles.dayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
     {activeSession && <View style={styles.activeBanner}><Text style={styles.activeBannerTitle}>SESSION SAVED AUTOMATICALLY</Text><Text style={styles.activeBannerText}>Started {new Date(activeSession.startedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Resume anytime from the Log tab.</Text></View>}
     {activeSession && <View style={styles.notes}><Text style={styles.notesLabel}>SESSION NOTES</Text><TextInput value={activeSession.notes} onChangeText={onNotesChange} placeholder="How did the session feel?" placeholderTextColor="#687067" multiline style={styles.notesInput} /></View>}
+    {!activeSession && <CoachPanel recommendations={recommendations} onApply={onApplyRecommendation} onReject={onRejectRecommendation} />}
     <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{volume.toLocaleString()}</Text><Text style={styles.summaryLabel}>KG VOLUME</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{displayedWorkout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
     {!activeSession && <Pressable style={styles.finish} onPress={onBegin}><Text style={styles.finishText}>START WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable>}
     {displayedWorkout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} onChange={onSetChange} onReplace={activeSession ? undefined : onReplaceExercise} />)}
