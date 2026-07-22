@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ActiveSession, applySessionPerformance, completeActiveSession, initialFourDaySplit, isSessionComplete, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, TrainingPhase, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
@@ -10,7 +10,7 @@ import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
 import { ExerciseLibraryScreen } from "./src/screens/ExerciseLibraryScreen";
 import { loadAppState, saveAppState } from "./src/storage/appStorage";
-import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "./src/domain/coaching";
+import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE } from "./src/domain/coaching";
 
 type AppView = "log" | "history" | "program" | "library";
 
@@ -23,6 +23,7 @@ export default function App() {
   const [phase, setPhase] = useState<TrainingPhase>("hypertrophy");
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [coachingProfile, setCoachingProfile] = useState<CoachingProfile>(DEFAULT_COACHING_PROFILE);
+  const [coachingDecisions, setCoachingDecisions] = useState<CoachingDecision[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [replacementExerciseId, setReplacementExerciseId] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export default function App() {
       setPhase(state.program.phase);
       setActiveSession(state.activeSession);
       setCoachingProfile(state.coachingProfile);
+      setCoachingDecisions(state.coachingDecisions);
       if (state.activeSession) {
         const workoutIndex = state.workouts.findIndex((item) => item.id === state.activeSession?.workoutId);
         if (workoutIndex >= 0) setSelected(workoutIndex);
@@ -49,19 +51,20 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) return;
-    saveAppState({ workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile })
+    saveAppState({ workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile, coachingDecisions })
       .then(() => setStorageError(null))
       .catch((error: unknown) => {
         console.warn("IronForge: unable to save app data.", error);
         setStorageError("Changes could not be saved. Check available device storage.");
       });
-  }, [workouts, records, trainingDays, phase, activeSession, coachingProfile, loaded]);
+  }, [workouts, records, trainingDays, phase, activeSession, coachingProfile, coachingDecisions, loaded]);
 
   const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
   const workout = workouts[selectedWorkoutIndex];
   const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises } : workout;
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed && !setValidationError(set)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
+  const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);
 
   function updateSet(exerciseId: string, setIndex: number, changes: Partial<SetLog>) {
     setActiveSession((current) => current ? {
@@ -140,11 +143,17 @@ export default function App() {
     setRecords((current) => current.map((record) => record.id === recordId ? { ...record, notes } : record));
   }
 
+  function decideRecommendation(recommendation: CoachingRecommendation, selectedWeight: number, rejected = false) {
+    const outcome: CoachingDecision["outcome"] = rejected ? "rejected" : selectedWeight === recommendation.suggestedWeight ? "accepted" : "modified";
+    if (!rejected) setWorkouts((current) => applyCoachingRecommendation(current, recommendation, selectedWeight));
+    setCoachingDecisions((current) => [{ recommendationId: recommendation.id, decidedAt: new Date().toISOString(), outcome, selectedWeight }, ...current]);
+  }
+
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} />}
+      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} />}
     </ScrollView>
   </SafeAreaView>;
 }
