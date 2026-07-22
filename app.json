@@ -4,6 +4,16 @@
     "slug": "ironforge",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark"
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "com.podyssea.ironforge",
+      "supportsTablet": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0b8d7a24-f5fe-4f6a-8ce4-d9ad543a5d00"
+      }
+    },
+    "owner": "odyssea_p"
   }
 }
