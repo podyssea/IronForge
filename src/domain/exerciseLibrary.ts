@@ -30,7 +30,7 @@ function defineExercise(id: string, name: string, movementPattern: MovementPatte
     id, name, movementPattern, primaryMuscles, equipment, difficulty, modality,
     secondaryMuscles: options.secondary ?? [],
     unilateral: options.unilateral ?? false,
-    suitableFor: modality === "compound" ? ["strength", "hypertrophy", "general-fitness"] : ["hypertrophy", "general-fitness", "muscular-endurance"],
+    suitableFor: ["strength", "hypertrophy", "general-fitness", "muscular-endurance"],
     defaultRepRanges: modality === "compound" ? { strength: [3, 6], hypertrophy: [6, 12], "general-fitness": [6, 12], "muscular-endurance": [12, 20] } : { strength: [6, 10], hypertrophy: [10, 15], "general-fitness": [10, 15], "muscular-endurance": [15, 25] },
     substitutions: options.substitutions ?? [],
   };
