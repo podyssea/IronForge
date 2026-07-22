@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initialFourDaySplit } from "../domain/training";
-import { AppState, CURRENT_SCHEMA_VERSION, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, ProgramPreferences, StoredAppStateV2 } from "./migrations";
+import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
+import { AppState, CURRENT_SCHEMA_VERSION, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, ProgramPreferences, StoredAppStateV3 } from "./migrations";
 
 const APP_STATE_KEY = "ironforge-app-state";
 const LEGACY_WORKOUTS_KEY = "ironforge-workouts-v1";
@@ -12,7 +13,7 @@ export type { AppState, ProgramPreferences } from "./migrations";
 const defaultProgram: ProgramPreferences = { trainingDays: 4, phase: "hypertrophy" };
 
 export function createDefaultAppState(): AppState {
-  return { workouts: initialFourDaySplit(), records: [], program: { ...defaultProgram }, activeSession: null };
+  return { workouts: initialFourDaySplit(), records: [], program: { ...defaultProgram }, activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE } };
 }
 
 export async function loadAppState(): Promise<AppState> {
@@ -27,7 +28,7 @@ export async function loadAppState(): Promise<AppState> {
 }
 
 export async function saveAppState(state: AppState): Promise<void> {
-  const stored: StoredAppStateV2 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
+  const stored: StoredAppStateV3 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
   await AsyncStorage.setItem(APP_STATE_KEY, JSON.stringify(stored));
 }
 
@@ -46,6 +47,7 @@ async function loadLegacyState(): Promise<AppState> {
     records: isSessionRecordArray(records) ? records : defaults.records,
     program: isProgramPreferences(program) ? program : defaults.program,
     activeSession: null,
+    coachingProfile: { ...DEFAULT_COACHING_PROFILE },
   };
 }
 
