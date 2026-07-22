@@ -1,11 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Exercise, initialFourDaySplit, SessionRecord, TrainingPhase, Workout } from "../domain/training";
+import { ActiveSession, Exercise, initialFourDaySplit, SessionRecord, TrainingPhase, Workout } from "../domain/training";
 
 const APP_STATE_KEY = "ironforge-app-state";
 const LEGACY_WORKOUTS_KEY = "ironforge-workouts-v1";
 const LEGACY_HISTORY_KEY = "ironforge-history-v1";
 const LEGACY_PROGRAM_KEY = "ironforge-program-v1";
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -16,10 +16,15 @@ export type AppState = {
   workouts: Workout[];
   records: SessionRecord[];
   program: ProgramPreferences;
+  activeSession: ActiveSession | null;
 };
 
-type StoredAppStateV1 = AppState & {
+type StoredAppStateV1 = Omit<AppState, "activeSession"> & {
   schemaVersion: 1;
+};
+
+type StoredAppStateV2 = AppState & {
+  schemaVersion: 2;
 };
 
 const defaultProgram: ProgramPreferences = {
@@ -32,6 +37,7 @@ export function createDefaultAppState(): AppState {
     workouts: initialFourDaySplit(),
     records: [],
     program: { ...defaultProgram },
+    activeSession: null,
   };
 }
 
@@ -48,7 +54,7 @@ export async function loadAppState(): Promise<AppState> {
 }
 
 export async function saveAppState(state: AppState): Promise<void> {
-  const stored: StoredAppStateV1 = {
+  const stored: StoredAppStateV2 = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     ...state,
   };
@@ -60,7 +66,9 @@ function migrateStoredState(value: unknown): AppState | null {
 
   switch (value.schemaVersion) {
     case 1:
-      return isAppState(value) ? toAppState(value) : null;
+      return isStoredAppStateV1(value) ? { ...toLegacyAppState(value), activeSession: null } : null;
+    case 2:
+      return isStoredAppStateV2(value) ? toAppState(value) : null;
     default:
       console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -83,6 +91,7 @@ async function loadLegacyState(): Promise<AppState> {
     workouts: isWorkoutArray(workouts) ? workouts : defaults.workouts,
     records: isSessionRecordArray(records) ? records : defaults.records,
     program: isProgramPreferences(program) ? program : defaults.program,
+    activeSession: null,
   };
 }
 
@@ -95,7 +104,7 @@ function parseJson(value: string | null): unknown {
   }
 }
 
-function toAppState(value: StoredAppStateV1): AppState {
+function toLegacyAppState(value: StoredAppStateV1): Omit<AppState, "activeSession"> {
   return {
     workouts: value.workouts,
     records: value.records,
@@ -103,11 +112,28 @@ function toAppState(value: StoredAppStateV1): AppState {
   };
 }
 
-function isAppState(value: Record<string, unknown>): value is StoredAppStateV1 {
+function toAppState(value: StoredAppStateV2): AppState {
+  return {
+    workouts: value.workouts,
+    records: value.records,
+    program: value.program,
+    activeSession: value.activeSession,
+  };
+}
+
+function isStoredAppStateV1(value: Record<string, unknown>): value is StoredAppStateV1 {
   return value.schemaVersion === 1
     && isWorkoutArray(value.workouts)
     && isSessionRecordArray(value.records)
     && isProgramPreferences(value.program);
+}
+
+function isStoredAppStateV2(value: Record<string, unknown>): value is StoredAppStateV2 {
+  return value.schemaVersion === 2
+    && isWorkoutArray(value.workouts)
+    && isSessionRecordArray(value.records)
+    && isProgramPreferences(value.program)
+    && (value.activeSession === null || isActiveSession(value.activeSession));
 }
 
 function isWorkoutArray(value: unknown): value is Workout[] {
@@ -148,6 +174,17 @@ function isSessionRecordArray(value: unknown): value is SessionRecord[] {
     && Array.isArray(record.exercises)
     && record.exercises.every(isExercise)
     && isFiniteNumber(record.volume));
+}
+
+function isActiveSession(value: unknown): value is ActiveSession {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.workoutId === "string"
+    && typeof value.workoutTitle === "string"
+    && typeof value.focus === "string"
+    && typeof value.startedAt === "string"
+    && Array.isArray(value.exercises)
+    && value.exercises.every(isExercise);
 }
 
 function isProgramPreferences(value: unknown): value is ProgramPreferences {
