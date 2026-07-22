@@ -8,6 +8,7 @@ export type Exercise = {
   lastWeight: number;
   lastReps: number;
   sets: SetLog[];
+  selectionReason?: string;
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };

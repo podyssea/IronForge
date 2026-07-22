@@ -117,6 +117,7 @@ function isExercise(value: unknown): value is Exercise {
     && value.repRange.every(isFiniteNumber)
     && isFiniteNumber(value.lastWeight)
     && isFiniteNumber(value.lastReps)
+    && (value.selectionReason === undefined || typeof value.selectionReason === "string")
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set) && isFiniteNumber(set.weight) && isFiniteNumber(set.reps) && typeof set.completed === "boolean");
 }
