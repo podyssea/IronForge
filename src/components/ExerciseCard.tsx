@@ -6,9 +6,10 @@ type ExerciseCardProps = {
   number: number;
   editable: boolean;
   onChange: (id: string, set: number, changes: Partial<SetLog>) => void;
+  onReplace?: (id: string) => void;
 };
 
-export function ExerciseCard({ exercise, number, editable, onChange }: ExerciseCardProps) {
+export function ExerciseCard({ exercise, number, editable, onChange, onReplace }: ExerciseCardProps) {
   const isComplete = exercise.sets.every((set) => set.completed);
   const toggleExercise = () => {
     if (!isComplete) {
@@ -31,6 +32,7 @@ export function ExerciseCard({ exercise, number, editable, onChange }: ExerciseC
     <View style={styles.tableHead}><Text style={[styles.head, styles.setCol]}>SET</Text><Text style={[styles.head, styles.inputCol]}>KG</Text><Text style={[styles.head, styles.inputCol]}>REPS</Text><Text style={[styles.head, styles.doneCol]}>DONE</Text></View>
     {exercise.sets.map((set, index) => { const error = setValidationError(set); return <View key={index}><View style={[styles.setRow, set.completed && styles.setRowDone, error && styles.setRowInvalid]}><Text style={[styles.setNumber, styles.setCol]}>{index + 1}</Text><TextInput editable={editable} value={String(set.weight)} onChangeText={(text) => updateSetValue(set, index, { weight: Number(text.replace(",", ".")) || 0 })} keyboardType="decimal-pad" selectTextOnFocus style={[styles.input, styles.inputCol, !editable && styles.inputDisabled]} /><TextInput editable={editable} value={String(set.reps)} onChangeText={(text) => updateSetValue(set, index, { reps: Number(text) || 0 })} keyboardType="number-pad" selectTextOnFocus style={[styles.input, styles.inputCol, !editable && styles.inputDisabled]} /><Pressable disabled={!editable} accessibilityRole="checkbox" accessibilityState={{ checked: set.completed, disabled: !editable }} accessibilityLabel={`${exercise.name}, set ${index + 1}`} onPress={() => toggleSet(set, index)} style={[styles.setToggle, set.completed && styles.setToggleDone, !editable && styles.setToggleDisabled]}><Text style={[styles.setToggleText, set.completed && styles.setToggleTextDone]}>{set.completed ? "✓" : ""}</Text></Pressable></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
     {editable && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isComplete }} onPress={toggleExercise} style={[styles.exerciseToggle, isComplete && styles.exerciseToggleDone]}><Text style={[styles.exerciseToggleText, isComplete && styles.exerciseToggleTextDone]}>{isComplete ? "✓ EXERCISE COMPLETE" : "MARK EXERCISE COMPLETE"}</Text></Pressable>}
+    {!editable && onReplace && <Pressable onPress={() => onReplace(exercise.id)} style={styles.replace}><Text style={styles.replaceText}>FIND A SUBSTITUTE</Text></Pressable>}
     <Text style={styles.tip}>{progression(exercise)}</Text>
   </View>;
 }
@@ -56,4 +58,5 @@ const styles = StyleSheet.create({
   exerciseToggle: { height: 38, marginTop: 12, borderWidth: 1, borderColor: "#667063", borderRadius: 6, justifyContent: "center", alignItems: "center" },
   exerciseToggleDone: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, exerciseToggleText: { color: "#cbd1c9", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
   exerciseToggleTextDone: { color: "#15200e" }, tip: { color: "#858d83", fontSize: 10, marginTop: 11, lineHeight: 14 },
+  replace: { height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#566052", justifyContent: "center", alignItems: "center", marginTop: 11 }, replaceText: { color: "#c2c9bf", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
 });

@@ -151,6 +151,24 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
   });
 }
 
+export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string, replacement: { id: string; name: string }): Workout[] {
+  const known = workouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === replacement.id);
+  return workouts.map((workout) => workout.id !== workoutId ? workout : {
+    ...workout,
+    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : {
+      ...exercise,
+      id: replacement.id,
+      name: replacement.name,
+      lastWeight: known?.lastWeight ?? 0,
+      lastReps: known?.lastReps ?? exercise.repRange[0],
+      sets: Array.from({ length: exercise.targetSets }, (_, index) => {
+        const prior = known?.sets[index];
+        return { weight: prior?.weight ?? known?.lastWeight ?? 0, reps: prior?.reps ?? known?.lastReps ?? exercise.repRange[0], completed: false };
+      }),
+    }),
+  });
+}
+
 export function progression(exercise: Exercise): string {
   const completed = exercise.sets.filter((set) => set.completed);
   if (completed.length === exercise.targetSets && completed.every((set) => set.reps >= exercise.repRange[1])) return `Ready to increase: try ${exercise.lastWeight + (exercise.lastWeight >= 50 ? 2.5 : 1)} kg next time`;
