@@ -1,6 +1,8 @@
 import { ActiveSession, Exercise, SessionRecord, TrainingPhase, Workout } from "../domain/training";
+import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
+import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -12,18 +14,22 @@ export type AppState = {
   records: SessionRecord[];
   program: ProgramPreferences;
   activeSession: ActiveSession | null;
+  coachingProfile: CoachingProfile;
 };
 
-type StoredAppStateV1 = Omit<AppState, "activeSession"> & { schemaVersion: 1 };
-export type StoredAppStateV2 = AppState & { schemaVersion: 2 };
+type StoredAppStateV1 = Omit<AppState, "activeSession" | "coachingProfile"> & { schemaVersion: 1 };
+type StoredAppStateV2 = Omit<AppState, "coachingProfile"> & { schemaVersion: 2 };
+export type StoredAppStateV3 = AppState & { schemaVersion: 3 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
   switch (value.schemaVersion) {
     case 1:
-      return isStoredAppStateV1(value) ? { workouts: value.workouts, records: value.records, program: value.program, activeSession: null } : null;
+      return isStoredAppStateV1(value) ? { workouts: value.workouts, records: value.records, program: value.program, activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE } } : null;
     case 2:
-      return isStoredAppStateV2(value) ? { workouts: value.workouts, records: value.records, program: value.program, activeSession: value.activeSession } : null;
+      return isStoredAppStateV2(value) ? { workouts: value.workouts, records: value.records, program: value.program, activeSession: value.activeSession, coachingProfile: { ...DEFAULT_COACHING_PROFILE } } : null;
+    case 3:
+      return isStoredAppStateV3(value) ? { workouts: value.workouts, records: value.records, program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile } : null;
     default:
       console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -62,6 +68,34 @@ function isStoredAppStateV2(value: Record<string, unknown>): value is StoredAppS
     && isSessionRecordArray(value.records)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || isActiveSession(value.activeSession));
+}
+
+function isStoredAppStateV3(value: Record<string, unknown>): value is StoredAppStateV3 {
+  return value.schemaVersion === 3
+    && isWorkoutArray(value.workouts)
+    && isSessionRecordArray(value.records)
+    && isProgramPreferences(value.program)
+    && (value.activeSession === null || isActiveSession(value.activeSession))
+    && isCoachingProfile(value.coachingProfile);
+}
+
+const EQUIPMENT: Equipment[] = ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"];
+const GOALS: TrainingStyle[] = ["strength", "hypertrophy", "general-fitness", "muscular-endurance"];
+const EXPERIENCE: ExperienceLevel[] = ["beginner", "intermediate", "advanced"];
+
+function isCoachingProfile(value: unknown): value is CoachingProfile {
+  return isRecord(value)
+    && GOALS.includes(value.goal as TrainingStyle)
+    && EXPERIENCE.includes(value.experience as ExperienceLevel)
+    && Number.isInteger(value.sessionMinutes)
+    && (value.sessionMinutes as number) >= 20
+    && (value.sessionMinutes as number) <= 180
+    && Array.isArray(value.availableEquipment)
+    && value.availableEquipment.every((item) => EQUIPMENT.includes(item))
+    && Array.isArray(value.preferredExerciseIds)
+    && value.preferredExerciseIds.every((item) => typeof item === "string")
+    && Array.isArray(value.excludedExerciseIds)
+    && value.excludedExerciseIds.every((item) => typeof item === "string");
 }
 
 function isWorkout(value: unknown): value is Workout {

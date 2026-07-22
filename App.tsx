@@ -6,6 +6,7 @@ import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
 import { loadAppState, saveAppState } from "./src/storage/appStorage";
+import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "./src/domain/coaching";
 
 type AppView = "log" | "history" | "program";
 
@@ -17,6 +18,7 @@ export default function App() {
   const [trainingDays, setTrainingDays] = useState(4);
   const [phase, setPhase] = useState<TrainingPhase>("hypertrophy");
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+  const [coachingProfile, setCoachingProfile] = useState<CoachingProfile>(DEFAULT_COACHING_PROFILE);
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
 
@@ -27,6 +29,7 @@ export default function App() {
       setTrainingDays(state.program.trainingDays);
       setPhase(state.program.phase);
       setActiveSession(state.activeSession);
+      setCoachingProfile(state.coachingProfile);
       if (state.activeSession) {
         const workoutIndex = state.workouts.findIndex((item) => item.id === state.activeSession?.workoutId);
         if (workoutIndex >= 0) setSelected(workoutIndex);
@@ -41,13 +44,13 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) return;
-    saveAppState({ workouts, records, program: { trainingDays, phase }, activeSession })
+    saveAppState({ workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile })
       .then(() => setStorageError(null))
       .catch((error: unknown) => {
         console.warn("IronForge: unable to save app data.", error);
         setStorageError("Changes could not be saved. Check available device storage.");
       });
-  }, [workouts, records, trainingDays, phase, activeSession, loaded]);
+  }, [workouts, records, trainingDays, phase, activeSession, coachingProfile, loaded]);
 
   const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
   const workout = workouts[selectedWorkoutIndex];
