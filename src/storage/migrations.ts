@@ -3,7 +3,7 @@ import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -26,6 +26,7 @@ export type StoredAppStateV4 = Omit<AppState, "coachingDecisions"> & { schemaVer
 export type StoredAppStateV5 = AppState & { schemaVersion: 5 };
 export type StoredAppStateV6 = AppState & { schemaVersion: 6 };
 export type StoredAppStateV7 = AppState & { schemaVersion: 7 };
+export type StoredAppStateV8 = AppState & { schemaVersion: 8 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
@@ -58,6 +59,8 @@ export function migrateStoredState(value: unknown): AppState | null {
       } : null;
     case 7:
       return isStoredAppStateV7(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
+    case 8:
+      return isStoredAppStateV8(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
     default:
       console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -73,6 +76,7 @@ export function isSessionRecordArray(value: unknown): value is SessionRecord[] {
     && typeof record.id === "string"
     && typeof record.completedAt === "string"
     && typeof record.workoutTitle === "string"
+    && (record.readiness === undefined || isReadiness(record.readiness))
     && Array.isArray(record.exercises)
     && record.exercises.every(isExercise)
     && isFiniteNumber(record.volume));
@@ -149,6 +153,17 @@ function isStoredAppStateV7(value: Record<string, unknown>): value is StoredAppS
     && value.coachingDecisions.every(isCoachingDecision);
 }
 
+function isStoredAppStateV8(value: Record<string, unknown>): value is StoredAppStateV8 {
+  return value.schemaVersion === 8
+    && isWorkoutArray(value.workouts)
+    && isSessionRecordArray(value.records)
+    && isProgramPreferences(value.program)
+    && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
+    && isCoachingProfile(value.coachingProfile)
+    && Array.isArray(value.coachingDecisions)
+    && value.coachingDecisions.every(isCoachingDecision);
+}
+
 function isCoachingDecision(value: unknown): value is CoachingDecision {
   return isRecord(value)
     && typeof value.recommendationId === "string"
@@ -205,6 +220,7 @@ function isExercise(value: unknown): value is Exercise {
     && isFiniteNumber(value.lastWeight)
     && isFiniteNumber(value.lastReps)
     && (value.selectionReason === undefined || typeof value.selectionReason === "string")
+    && (value.loadingType === undefined || value.loadingType === "pin-loaded" || value.loadingType === "plate-loaded")
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set) && isFiniteNumber(set.weight) && isFiniteNumber(set.reps) && typeof set.completed === "boolean");
 }
@@ -216,8 +232,24 @@ function isActiveSession(value: unknown): value is ActiveSession {
     && typeof value.workoutTitle === "string"
     && typeof value.focus === "string"
     && typeof value.startedAt === "string"
+    && (value.readiness === undefined || isReadiness(value.readiness))
     && Array.isArray(value.exercises)
     && value.exercises.every(isExercise);
+}
+
+function isReadiness(value: unknown): boolean {
+  return isRecord(value)
+    && isScaleValue(value.energy)
+    && isScaleValue(value.sleep)
+    && isScaleValue(value.soreness)
+    && Number.isInteger(value.score)
+    && (value.score as number) >= 0
+    && (value.score as number) <= 100
+    && (value.level === "ready" || value.level === "moderate" || value.level === "low");
+}
+
+function isScaleValue(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 5;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

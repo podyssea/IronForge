@@ -75,6 +75,16 @@ describe("storage migrations", () => {
     expect(migrated?.records).toEqual([]);
   });
 
+  it("restores schema version 8 exercise loading types and readiness", () => {
+    const workouts = initialFourDaySplit();
+    workouts[0].exercises[0].loadingType = "plate-loaded";
+    const activeSession = startActiveSession(workouts[0]);
+    activeSession.readiness = { energy: 4, sleep: 5, soreness: 2, score: 80, level: "ready" };
+    const migrated = migrateStoredState({ schemaVersion: 8, workouts, records: [], program, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] });
+    expect(migrated?.workouts[0].exercises[0].loadingType).toBe("plate-loaded");
+    expect(migrated?.activeSession?.readiness?.score).toBe(80);
+  });
+
   it("rejects malformed state", () => {
     expect(migrateStoredState({ schemaVersion: 7, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] })).toBeNull();
     expect(migrateStoredState({ schemaVersion: 1, workouts: initialFourDaySplit(), records: "invalid", program })).toBeNull();

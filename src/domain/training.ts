@@ -1,4 +1,13 @@
 export type SetLog = { weight: number; reps: number; completed: boolean };
+export type LoadingType = "pin-loaded" | "plate-loaded";
+export type ReadinessCheckIn = { energy: number; sleep: number; soreness: number };
+export type ReadinessAdjustment = {
+  score: number;
+  level: "ready" | "moderate" | "low";
+  loadScale: number;
+  setReduction: number;
+  summary: string;
+};
 
 export type Exercise = {
   id: string;
@@ -9,11 +18,12 @@ export type Exercise = {
   lastReps: number;
   sets: SetLog[];
   selectionReason?: string;
+  loadingType?: LoadingType;
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
-export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; workoutTitle: string; exercises: Exercise[]; volume: number };
-export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; exercises: Exercise[] };
+export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 
@@ -116,6 +126,36 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
   };
 }
 
+export function evaluateReadiness(checkIn: ReadinessCheckIn): ReadinessAdjustment {
+  const values = [checkIn.energy, checkIn.sleep, checkIn.soreness];
+  if (values.some((value) => !Number.isInteger(value) || value < 1 || value > 5)) throw new Error("Readiness values must be whole numbers from 1 to 5.");
+  const score = Math.round(((checkIn.energy + checkIn.sleep + (6 - checkIn.soreness)) / 15) * 100);
+  if (score < 47) return { score, level: "low", loadScale: 0.85, setReduction: 1, summary: "Recovery is low. Reduce each exercise by one set and use 85% of the planned load." };
+  if (score < 67) return { score, level: "moderate", loadScale: 0.9, setReduction: 0, summary: "Recovery is moderate. Keep the planned sets and use 90% of the planned load." };
+  return { score, level: "ready", loadScale: 1, setReduction: 0, summary: "You are ready for the planned session." };
+}
+
+export function startRecoveryAwareSession(workout: Workout, checkIn: ReadinessCheckIn, now = new Date()): ActiveSession {
+  const adjustment = evaluateReadiness(checkIn);
+  const session = startActiveSession(workout, now);
+  return {
+    ...session,
+    focus: adjustment.level === "ready" ? session.focus : `${session.focus} · ${adjustment.level === "low" ? "Recovery session" : "Adjusted effort"}`,
+    readiness: { ...checkIn, score: adjustment.score, level: adjustment.level },
+    exercises: session.exercises.map((exercise) => {
+      const targetSets = Math.max(1, exercise.targetSets - adjustment.setReduction);
+      return {
+        ...exercise,
+        targetSets,
+        sets: exercise.sets.slice(0, targetSets).map((set) => ({
+          ...set,
+          weight: roundToIncrement(set.weight * adjustment.loadScale, exercise.loadingType),
+        })),
+      };
+    }),
+  };
+}
+
 export function completeActiveSession(session: ActiveSession, now = new Date()): SessionRecord {
   return {
     id: session.id,
@@ -124,6 +164,7 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
     completedAt: now.toISOString(),
     durationSeconds: Math.max(0, Math.round((now.getTime() - new Date(session.startedAt).getTime()) / 1000)),
     notes: session.notes,
+    readiness: session.readiness,
     workoutTitle: session.workoutTitle,
     exercises: session.exercises.map((exercise) => {
       const completed = exercise.sets.filter((set) => set.completed && !setValidationError(set));
@@ -177,6 +218,17 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
 
 export function progression(exercise: Exercise): string {
   const completed = exercise.sets.filter((set) => set.completed);
-  if (completed.length === exercise.targetSets && completed.every((set) => set.reps >= exercise.repRange[1])) return `Ready to increase: try ${exercise.lastWeight + (exercise.lastWeight >= 50 ? 2.5 : 1)} kg next time`;
+  if (completed.length === exercise.targetSets && completed.every((set) => set.reps >= exercise.repRange[1])) return `Ready to increase: try ${exercise.lastWeight + loadIncrement(exercise)} kg next time`;
   return `Progress when all working sets reach ${exercise.repRange[1]} reps`;
+}
+
+export function loadIncrement(exercise: Exercise): number {
+  if (exercise.loadingType === "pin-loaded") return 5;
+  if (exercise.loadingType === "plate-loaded") return 2.5;
+  return exercise.lastWeight >= 50 ? 2.5 : 1;
+}
+
+export function roundToIncrement(weight: number, loadingType?: LoadingType): number {
+  const increment = loadingType === "pin-loaded" ? 5 : loadingType === "plate-loaded" ? 2.5 : 0.5;
+  return Math.max(0, Math.round(weight / increment) * increment);
 }
