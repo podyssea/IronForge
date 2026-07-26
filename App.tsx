@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, applySessionPerformance, completeActiveSession, initialFourDaySplit, isSessionComplete, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, TrainingPhase, Workout } from "./src/domain/training";
+import { ActiveSession, applySessionPerformance, completeActiveSession, initialFourDaySplit, isSessionComplete, LoadingType, ReadinessCheckIn, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startRecoveryAwareSession, TrainingPhase, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram } from "./src/domain/programGenerator";
 import { deleteSessionRecord } from "./src/domain/sessionJournal";
@@ -28,6 +28,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [replacementExerciseId, setReplacementExerciseId] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessCheckIn>({ energy: 3, sleep: 3, soreness: 3 });
 
   useEffect(() => {
     loadAppState().then((state) => {
@@ -75,6 +76,13 @@ export default function App() {
         sets: exercise.sets.map((set, index) => index === setIndex ? { ...set, ...changes } : set),
       }),
     } : current);
+  }
+
+  function setLoadingType(exerciseId: string, loadingType: LoadingType) {
+    setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
+      ...item,
+      exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, loadingType } : exercise),
+    }));
   }
 
   function cancelWorkout() {
@@ -154,7 +162,7 @@ export default function App() {
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "analytics", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item === "analytics" ? "STATS" : item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "analytics" ? <AnalyticsScreen records={records} trainingDays={trainingDays} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startActiveSession(workout))} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} />}
+      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "analytics" ? <AnalyticsScreen records={records} trainingDays={trainingDays} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={() => setActiveSession(startRecoveryAwareSession(workout, readiness))} readiness={readiness} onReadinessChange={setReadiness} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} />}
     </ScrollView>
   </SafeAreaView>;
 }

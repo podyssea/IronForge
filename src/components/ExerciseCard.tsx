@@ -1,5 +1,5 @@
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { Exercise, progression, setValidationError, SetLog } from "../domain/training";
+import { Exercise, LoadingType, progression, setValidationError, SetLog } from "../domain/training";
 
 type ExerciseCardProps = {
   exercise: Exercise;
@@ -7,9 +7,10 @@ type ExerciseCardProps = {
   editable: boolean;
   onChange: (id: string, set: number, changes: Partial<SetLog>) => void;
   onReplace?: (id: string) => void;
+  onLoadingType?: (id: string, loadingType: LoadingType) => void;
 };
 
-export function ExerciseCard({ exercise, number, editable, onChange, onReplace }: ExerciseCardProps) {
+export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType }: ExerciseCardProps) {
   const isComplete = exercise.sets.every((set) => set.completed);
   const toggleExercise = () => {
     if (!isComplete) {
@@ -32,6 +33,7 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace }
     <View style={styles.tableHead}><Text style={[styles.head, styles.setCol]}>SET</Text><Text style={[styles.head, styles.inputCol]}>KG</Text><Text style={[styles.head, styles.inputCol]}>REPS</Text><Text style={[styles.head, styles.doneCol]}>DONE</Text></View>
     {exercise.sets.map((set, index) => { const error = setValidationError(set); return <View key={index}><View style={[styles.setRow, set.completed && styles.setRowDone, error && styles.setRowInvalid]}><Text style={[styles.setNumber, styles.setCol]}>{index + 1}</Text><TextInput editable={editable} value={String(set.weight)} onChangeText={(text) => updateSetValue(set, index, { weight: Number(text.replace(",", ".")) || 0 })} keyboardType="decimal-pad" selectTextOnFocus style={[styles.input, styles.inputCol, !editable && styles.inputDisabled]} /><TextInput editable={editable} value={String(set.reps)} onChangeText={(text) => updateSetValue(set, index, { reps: Number(text) || 0 })} keyboardType="number-pad" selectTextOnFocus style={[styles.input, styles.inputCol, !editable && styles.inputDisabled]} /><Pressable disabled={!editable} accessibilityRole="checkbox" accessibilityState={{ checked: set.completed, disabled: !editable }} accessibilityLabel={`${exercise.name}, set ${index + 1}`} onPress={() => toggleSet(set, index)} style={[styles.setToggle, set.completed && styles.setToggleDone, !editable && styles.setToggleDisabled]}><Text style={[styles.setToggleText, set.completed && styles.setToggleTextDone]}>{set.completed ? "✓" : ""}</Text></Pressable></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
     {editable && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isComplete }} onPress={toggleExercise} style={[styles.exerciseToggle, isComplete && styles.exerciseToggleDone]}><Text style={[styles.exerciseToggleText, isComplete && styles.exerciseToggleTextDone]}>{isComplete ? "✓ EXERCISE COMPLETE" : "MARK EXERCISE COMPLETE"}</Text></Pressable>}
+    {!editable && onLoadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>MACHINE LOADING</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={[styles.loadingChoice, exercise.loadingType === item && styles.loadingChoiceActive]}><Text style={[styles.loadingChoiceText, exercise.loadingType === item && styles.loadingChoiceTextActive]}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED"}</Text></Pressable>)}</View></View>}
     {!editable && onReplace && <Pressable onPress={() => onReplace(exercise.id)} style={styles.replace}><Text style={styles.replaceText}>FIND A SUBSTITUTE</Text></Pressable>}
     {exercise.selectionReason && <Text style={styles.reason}>COACH: {exercise.selectionReason}</Text>}
     <Text style={styles.tip}>{progression(exercise)}</Text>
@@ -61,4 +63,6 @@ const styles = StyleSheet.create({
   exerciseToggleTextDone: { color: "#15200e" }, tip: { color: "#858d83", fontSize: 10, marginTop: 11, lineHeight: 14 },
   replace: { height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#566052", justifyContent: "center", alignItems: "center", marginTop: 11 }, replaceText: { color: "#c2c9bf", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
   reason: { color: "#b9c99b", fontSize: 10, lineHeight: 15, marginTop: 11 },
+  loadingType: { marginTop: 12 }, loadingLabel: { color: "#777f76", fontSize: 8, fontWeight: "900", letterSpacing: .8, marginBottom: 7 },
+  loadingChoices: { flexDirection: "row", gap: 7 }, loadingChoice: { flex: 1, borderWidth: 1, borderColor: "#566052", borderRadius: 6, paddingVertical: 8, alignItems: "center" }, loadingChoiceActive: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, loadingChoiceText: { color: "#aeb5ad", fontSize: 8, fontWeight: "900", letterSpacing: .5 }, loadingChoiceTextActive: { color: "#15200e" },
 });
