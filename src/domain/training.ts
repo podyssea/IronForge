@@ -119,11 +119,41 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     focus: workout.focus,
     startedAt: now.toISOString(),
     notes: "",
-    exercises: workout.exercises.map((exercise) => ({
-      ...exercise,
-      sets: exercise.sets.map((set) => ({ ...set, completed: false })),
-    })),
+    exercises: workout.exercises.map((exercise) => applyWarmupLoads(exercise)),
   };
+}
+
+export function workingSetStartIndex(exercise: Exercise): number {
+  return Math.max(0, exercise.sets.length - 2);
+}
+
+export function isWorkingSet(exercise: Exercise, setIndex: number): boolean {
+  return setIndex >= workingSetStartIndex(exercise);
+}
+
+export function workingSets(exercise: Exercise): SetLog[] {
+  return exercise.sets.slice(workingSetStartIndex(exercise));
+}
+
+export function bestCompletedWorkingSet(exercise: Exercise): SetLog | undefined {
+  return workingSets(exercise)
+    .filter((set) => set.completed && !setValidationError(set))
+    .reduce<SetLog | undefined>((best, set) => !best || set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps) ? set : best, undefined);
+}
+
+export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.lastWeight): Exercise {
+  const warmupCount = workingSetStartIndex(exercise);
+  return {
+    ...exercise,
+    sets: exercise.sets.map((set, index) => {
+      const scale = warmupCount === 2 && index === 0 ? 0.5 : index < warmupCount ? 0.7 : 1;
+      return { ...set, weight: roundToIncrement(workingWeight * scale, exercise.loadingType), completed: false };
+    }),
+  };
+}
+
+export function exercisesMissingLoadingType(workout: Workout): Exercise[] {
+  return workout.exercises.filter((exercise) => !exercise.loadingType);
 }
 
 export function evaluateReadiness(checkIn: ReadinessCheckIn): ReadinessAdjustment {
@@ -144,14 +174,11 @@ export function startRecoveryAwareSession(workout: Workout, checkIn: ReadinessCh
     readiness: { ...checkIn, score: adjustment.score, level: adjustment.level },
     exercises: session.exercises.map((exercise) => {
       const targetSets = Math.max(1, exercise.targetSets - adjustment.setReduction);
-      return {
+      return applyWarmupLoads({
         ...exercise,
         targetSets,
-        sets: exercise.sets.slice(0, targetSets).map((set) => ({
-          ...set,
-          weight: roundToIncrement(set.weight * adjustment.loadScale, exercise.loadingType),
-        })),
-      };
+        sets: exercise.sets.slice(0, targetSets),
+      }, roundToIncrement(exercise.lastWeight * adjustment.loadScale, exercise.loadingType));
     }),
   };
 }
@@ -167,12 +194,11 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
     readiness: session.readiness,
     workoutTitle: session.workoutTitle,
     exercises: session.exercises.map((exercise) => {
-      const completed = exercise.sets.filter((set) => set.completed && !setValidationError(set));
-      const latest = completed[completed.length - 1];
+      const best = bestCompletedWorkingSet(exercise);
       return {
         ...exercise,
-        lastWeight: latest?.weight ?? exercise.lastWeight,
-        lastReps: latest?.reps ?? exercise.lastReps,
+        lastWeight: best?.weight ?? exercise.lastWeight,
+        lastReps: best?.reps ?? exercise.lastReps,
         sets: exercise.sets.map((set) => ({ ...set, completed: set.completed && !setValidationError(set) })),
       };
     }),
@@ -185,41 +211,47 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
     ...workout,
     exercises: workout.exercises.map((exercise) => {
       const performed = session.exercises.find((item) => item.id === exercise.id);
-      const completed = performed?.sets.filter((set) => set.completed && !setValidationError(set)) ?? [];
-      const latest = completed[completed.length - 1];
-      if (!latest) return exercise;
-      return {
+      const best = performed ? bestCompletedWorkingSet(performed) : undefined;
+      if (!best) return exercise;
+      return applyWarmupLoads({
         ...exercise,
-        lastWeight: latest.weight,
-        lastReps: latest.reps,
+        lastWeight: best.weight,
+        lastReps: best.reps,
         sets: exercise.sets.map((set, index) => ({ ...(performed?.sets[index] ?? set), completed: false })),
-      };
+      }, best.weight);
     }),
   });
 }
 
-export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string, replacement: { id: string; name: string }): Workout[] {
+export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string, replacement: { id: string; name: string }, records: SessionRecord[] = []): Workout[] {
   const known = workouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === replacement.id);
+  const historical = records
+    .flatMap((record) => record.exercises)
+    .filter((exercise) => exercise.id === replacement.id)
+    .map((exercise) => ({ exercise, best: bestCompletedWorkingSet(exercise) }))
+    .filter((item): item is { exercise: Exercise; best: SetLog } => Boolean(item.best))
+    .reduce<{ exercise: Exercise; best: SetLog } | undefined>((best, item) => !best || item.best.weight > best.best.weight || (item.best.weight === best.best.weight && item.best.reps > best.best.reps) ? item : best, undefined);
+  const bestWeight = Math.max(known?.lastWeight ?? 0, historical?.best.weight ?? 0);
+  const bestReps = historical?.best.weight === bestWeight ? historical.best.reps : known?.lastReps;
   return workouts.map((workout) => workout.id !== workoutId ? workout : {
     ...workout,
-    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : {
+    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads({
       ...exercise,
       id: replacement.id,
       name: replacement.name,
-      lastWeight: known?.lastWeight ?? 0,
-      lastReps: known?.lastReps ?? exercise.repRange[0],
-      sets: Array.from({ length: exercise.targetSets }, (_, index) => {
-        const prior = known?.sets[index];
-        return { weight: prior?.weight ?? known?.lastWeight ?? 0, reps: prior?.reps ?? known?.lastReps ?? exercise.repRange[0], completed: false };
-      }),
-    }),
+      loadingType: known?.loadingType ?? historical?.exercise.loadingType,
+      lastWeight: bestWeight,
+      lastReps: bestReps ?? exercise.repRange[0],
+      sets: Array.from({ length: exercise.targetSets }, () => ({ weight: bestWeight, reps: bestReps ?? exercise.repRange[0], completed: false })),
+    }, bestWeight)),
   });
 }
 
 export function progression(exercise: Exercise): string {
-  const completed = exercise.sets.filter((set) => set.completed);
-  if (completed.length === exercise.targetSets && completed.every((set) => set.reps >= exercise.repRange[1])) return `Ready to increase: try ${exercise.lastWeight + loadIncrement(exercise)} kg next time`;
-  return `Progress when all working sets reach ${exercise.repRange[1]} reps`;
+  const completed = workingSets(exercise).filter((set) => set.completed);
+  const best = bestCompletedWorkingSet(exercise);
+  if (completed.length === Math.min(2, exercise.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${best.weight + loadIncrement({ ...exercise, lastWeight: best.weight })} kg next time`;
+  return `Progress when both working sets reach ${exercise.repRange[1]} reps`;
 }
 
 export function loadIncrement(exercise: Exercise): number {
