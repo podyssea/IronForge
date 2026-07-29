@@ -14,12 +14,15 @@ const EQUIPMENT: Equipment[] = ["barbell", "dumbbell", "cable", "machine", "smit
 type ProgramScreenProps = {
   trainingDays: number;
   profile: CoachingProfile;
+  backupBusy: boolean;
   onDays: (days: number) => void;
   onProfile: (profile: CoachingProfile) => void;
   onApply: () => void;
+  onExportBackup: () => void;
+  onImportBackup: () => void;
 };
 
-export function ProgramScreen({ trainingDays, profile, onDays, onProfile, onApply }: ProgramScreenProps) {
+export function ProgramScreen({ trainingDays, profile, backupBusy, onDays, onProfile, onApply, onExportBackup, onImportBackup }: ProgramScreenProps) {
   const update = (changes: Partial<CoachingProfile>) => onProfile({ ...profile, ...changes });
   const toggleEquipment = (item: Equipment) => {
     const selected = profile.availableEquipment.includes(item);
@@ -36,6 +39,15 @@ export function ProgramScreen({ trainingDays, profile, onDays, onProfile, onAppl
     <Text style={styles.builderLabel}>AVAILABLE EQUIPMENT</Text><View style={styles.wrap}>{EQUIPMENT.map((item) => <Pressable key={item} onPress={() => toggleEquipment(item)} style={[styles.chip, profile.availableEquipment.includes(item) && styles.chipActive]}><Text style={[styles.chipText, profile.availableEquipment.includes(item) && styles.chipTextActive]}>{item.replaceAll("-", " ").toUpperCase()}</Text></Pressable>)}</View>
     <View style={styles.preview}><Text style={styles.previewTitle}>{trainingDays}-day {profile.goal.replaceAll("-", " ")} plan</Text><Text style={styles.previewText}>Approximately {estimatedExercises} exercises per session for a {profile.sessionMinutes}-minute target. Exercise difficulty is capped at {profile.experience} and restricted to your selected equipment.</Text></View>
     <Pressable style={styles.finish} onPress={onApply}><Text style={styles.finishText}>GENERATE MY PROGRAM</Text><Text style={styles.finishArrow}>→</Text></Pressable>
+    <Text style={styles.builderLabel}>DATA & BACKUP</Text>
+    <View style={styles.backupCard}>
+      <Text style={styles.backupTitle}>Keep your progress safe</Text>
+      <Text style={styles.backupText}>Save a complete offline backup of your workouts, history, coaching settings, and any active session. Restore it later on this or another iPhone.</Text>
+      <View style={styles.backupActions}>
+        <Pressable disabled={backupBusy} onPress={onExportBackup} style={({ pressed }) => [styles.backupPrimary, (pressed || backupBusy) && styles.buttonMuted]}><Text style={styles.backupPrimaryText}>{backupBusy ? "PLEASE WAIT…" : "SAVE BACKUP"}</Text></Pressable>
+        <Pressable disabled={backupBusy} onPress={onImportBackup} style={({ pressed }) => [styles.backupSecondary, (pressed || backupBusy) && styles.buttonMuted]}><Text style={styles.backupSecondaryText}>RESTORE BACKUP</Text></Pressable>
+      </View>
+    </View>
   </>;
 }
 
@@ -53,4 +65,5 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 }, chip: { backgroundColor: "#1a1f1a", borderRadius: 15, paddingHorizontal: 11, paddingVertical: 8, borderWidth: 1, borderColor: "#303730" }, chipActive: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, chipText: { color: "#9da59b", fontSize: 8, fontWeight: "900" }, chipTextActive: { color: "#15200e" },
   preview: { backgroundColor: "#1a1f1a", borderLeftWidth: 3, borderLeftColor: "#d8ff38", borderRadius: 7, padding: 14, marginTop: 20 }, previewTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800", textTransform: "capitalize" }, previewText: { color: "#8c958a", fontSize: 11, lineHeight: 16, marginTop: 5 },
   finish: { height: 58, borderRadius: 9, backgroundColor: "#d8ff38", marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }, finishText: { color: "#15190f", fontWeight: "900", fontSize: 12, letterSpacing: .8 }, finishArrow: { color: "#15190f", fontSize: 22, fontWeight: "700" },
+  backupCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, backupTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800" }, backupText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 6 }, backupActions: { flexDirection: "row", gap: 8, marginTop: 15 }, backupPrimary: { flex: 1, minHeight: 44, borderRadius: 7, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center" }, backupPrimaryText: { color: "#15190f", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, backupSecondary: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#626b60", alignItems: "center", justifyContent: "center" }, backupSecondaryText: { color: "#e9ede6", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, buttonMuted: { opacity: .55 },
 });

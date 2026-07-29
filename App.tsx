@@ -10,7 +10,8 @@ import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
 import { ExerciseLibraryScreen } from "./src/screens/ExerciseLibraryScreen";
 import { AnalyticsScreen } from "./src/screens/AnalyticsScreen";
-import { loadAppState, saveAppState } from "./src/storage/appStorage";
+import { AppState, loadAppState, saveAppState } from "./src/storage/appStorage";
+import { pickAppBackup, shareAppBackup } from "./src/storage/backupFiles";
 import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE } from "./src/domain/coaching";
 
 type AppView = "log" | "history" | "analytics" | "program" | "library";
@@ -28,6 +29,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [replacementExerciseId, setReplacementExerciseId] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   useEffect(() => {
     loadAppState().then((state) => {
@@ -165,11 +167,63 @@ export default function App() {
     setActiveSession(startActiveSession(workout));
   }
 
+  function appState(): AppState {
+    return { workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile, coachingDecisions };
+  }
+
+  async function exportBackup() {
+    setBackupBusy(true);
+    try {
+      await shareAppBackup(appState());
+    } catch (error: unknown) {
+      Alert.alert("Backup not saved", error instanceof Error ? error.message : "IronForge could not create the backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function importBackup() {
+    setBackupBusy(true);
+    try {
+      const restored = await pickAppBackup();
+      if (!restored) return;
+      const date = new Date(restored.summary.exportedAt);
+      const exported = Number.isNaN(date.getTime()) ? restored.summary.exportedAt : date.toLocaleString();
+      Alert.alert(
+        "Restore this backup?",
+        `Backup from ${exported}\n${restored.summary.workouts} workouts · ${restored.summary.sessions} saved sessions\n\nThis will replace the data currently in IronForge.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Restore", style: "destructive", onPress: () => applyRestoredState(restored.state) },
+        ],
+      );
+    } catch (error: unknown) {
+      Alert.alert("Backup not restored", error instanceof Error ? error.message : "IronForge could not read this backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  function applyRestoredState(state: AppState) {
+    setWorkouts(state.workouts);
+    setRecords(state.records);
+    setTrainingDays(state.program.trainingDays);
+    setPhase(state.program.phase);
+    setActiveSession(state.activeSession);
+    setCoachingProfile(state.coachingProfile);
+    setCoachingDecisions(state.coachingDecisions);
+    const activeIndex = state.activeSession ? state.workouts.findIndex((item) => item.id === state.activeSession?.workoutId) : 0;
+    setSelected(activeIndex >= 0 ? activeIndex : 0);
+    setReplacementExerciseId(null);
+    setView(state.activeSession ? "log" : "history");
+    Alert.alert("Backup restored", "Your IronForge progress and settings are back on this phone.");
+  }
+
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "analytics", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item === "analytics" ? "STATS" : item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "analytics" ? <AnalyticsScreen records={records} trainingDays={trainingDays} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} />}
+      {view === "history" ? <HistoryScreen records={records} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "analytics" ? <AnalyticsScreen records={records} trainingDays={trainingDays} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} />}
     </ScrollView>
   </SafeAreaView>;
 }
