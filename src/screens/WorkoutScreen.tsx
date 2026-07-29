@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ExerciseCard } from "../components/ExerciseCard";
 import { CoachPanel } from "../components/CoachPanel";
 import { CoachingRecommendation } from "../domain/coaching";
-import { ActiveSession, LoadingType, sessionVolume, setValidationError, SetLog, Workout } from "../domain/training";
+import { ActiveSession, displayWeight, EffortMetric, Exercise, LoadingType, sessionVolume, setValidationError, SetLog, WeightUnit, weightUnitLabel, Workout } from "../domain/training";
+import { cancelRestNotification, scheduleRestNotification } from "../device/restNotifications";
 
 type WorkoutScreenProps = {
   workouts: Workout[];
@@ -20,9 +22,55 @@ type WorkoutScreenProps = {
   recommendations: CoachingRecommendation[];
   onApplyRecommendation: (recommendation: CoachingRecommendation, weight: number) => void;
   onRejectRecommendation: (recommendation: CoachingRecommendation) => void;
+  weightUnit: WeightUnit;
+  effortMetric: EffortMetric;
+  onPrescription: (id: string, changes: { name?: string; targetSets?: number; repRange?: [number, number]; loadIncrement?: number; restSeconds?: number }) => void;
+  onMoveExercise: (id: string, direction: -1 | 1) => void;
+  onRemoveExercise: (id: string) => void;
+  onAddCustomExercise: (name: string) => void;
+  defaultRestSeconds: number;
+  onWorkoutDetails: (changes: Partial<Pick<Workout, "title" | "focus">>) => void;
 };
 
-export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, onSelect, onBegin, onSetChange, onFinish, onCancel, onReplaceExercise, onLoadingType, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation }: WorkoutScreenProps) {
+export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, onSelect, onBegin, onSetChange, onFinish, onCancel, onReplaceExercise, onLoadingType, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, effortMetric, onPrescription, onMoveExercise, onRemoveExercise, onAddCustomExercise, defaultRestSeconds, onWorkoutDetails }: WorkoutScreenProps) {
+  const [editingProgram, setEditingProgram] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
+  const [restNotificationId, setRestNotificationId] = useState<string | null>(null);
+  const [restExerciseName, setRestExerciseName] = useState("Exercise");
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!restEndsAt) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [restEndsAt]);
+  useEffect(() => {
+    if (!activeSession && restNotificationId) void stopRest();
+  }, [activeSession]);
+  const restRemaining = restEndsAt ? Math.max(0, Math.ceil((restEndsAt - now) / 1000)) : 0;
+
+  async function startRest(exercise: Exercise, overrideSeconds?: number) {
+    const seconds = overrideSeconds ?? exercise.restSeconds ?? defaultRestSeconds;
+    await cancelRestNotification(restNotificationId);
+    setNow(Date.now());
+    setRestExerciseName(exercise.name);
+    setRestEndsAt(Date.now() + seconds * 1000);
+    setRestNotificationId(await scheduleRestNotification(seconds, exercise.name));
+  }
+
+  async function stopRest() {
+    await cancelRestNotification(restNotificationId);
+    setRestNotificationId(null);
+    setRestEndsAt(null);
+  }
+
+  async function addRestTime() {
+    const seconds = restRemaining + 30;
+    await cancelRestNotification(restNotificationId);
+    setNow(Date.now());
+    setRestEndsAt(Date.now() + seconds * 1000);
+    setRestNotificationId(await scheduleRestNotification(seconds, restExerciseName));
+  }
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed && !setValidationError(set)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const volume = sessionVolume(displayedWorkout.exercises);
@@ -32,11 +80,15 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     <Text style={styles.kicker}>{activeSession ? "WORKOUT IN PROGRESS" : "TODAY'S TRAINING"}</Text><Text style={styles.title}>{displayedWorkout.title.split(" · ").pop()}</Text>
     <View style={styles.dayTabs}>{workouts.map((item, index) => <Pressable key={item.id} disabled={Boolean(activeSession)} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index, disabled: Boolean(activeSession) }} accessibilityLabel={`Day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => onSelect(index)} style={[styles.day, selectedWorkoutIndex === index && styles.dayActive, activeSession && selectedWorkoutIndex !== index && styles.dayDisabled]}><Text style={[styles.dayText, selectedWorkoutIndex === index && styles.dayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
     {activeSession && <View style={styles.activeBanner}><Text style={styles.activeBannerTitle}>SESSION SAVED AUTOMATICALLY</Text><Text style={styles.activeBannerText}>Started {new Date(activeSession.startedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Resume anytime from the Log tab.</Text></View>}
+    {activeSession && restEndsAt && <View style={styles.restTimer}><View><Text style={styles.restLabel}>{restRemaining ? `REST · ${restExerciseName.toUpperCase()}` : "REST COMPLETE"}</Text><Text style={styles.restTime}>{String(Math.floor(restRemaining / 60)).padStart(2, "0")}:{String(restRemaining % 60).padStart(2, "0")}</Text></View><View style={styles.restActions}><Pressable onPress={addRestTime} style={styles.restButton}><Text style={styles.restButtonText}>+30 SEC</Text></Pressable><Pressable onPress={stopRest} style={styles.restButton}><Text style={styles.restButtonText}>SKIP</Text></Pressable></View></View>}
     {activeSession && <View style={styles.notes}><Text style={styles.notesLabel}>SESSION NOTES</Text><TextInput value={activeSession.notes} onChangeText={onNotesChange} placeholder="How did the session feel?" placeholderTextColor="#687067" multiline style={styles.notesInput} /></View>}
-    {!activeSession && <CoachPanel recommendations={recommendations} onApply={onApplyRecommendation} onReject={onRejectRecommendation} />}
-    <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{volume.toLocaleString()}</Text><Text style={styles.summaryLabel}>KG VOLUME</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{displayedWorkout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
-    {!activeSession && <Pressable style={styles.finish} onPress={onBegin}><Text style={styles.finishText}>START WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable>}
-    {displayedWorkout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} onChange={onSetChange} onReplace={activeSession ? undefined : onReplaceExercise} onLoadingType={activeSession ? undefined : onLoadingType} />)}
+    {!activeSession && <CoachPanel recommendations={recommendations} onApply={onApplyRecommendation} onReject={onRejectRecommendation} weightUnit={weightUnit} />}
+    <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{displayWeight(volume, weightUnit).toLocaleString()}</Text><Text style={styles.summaryLabel}>{weightUnitLabel(weightUnit).toUpperCase()} VOLUME</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{displayedWorkout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
+    {!activeSession && <Pressable onPress={() => setEditingProgram((current) => !current)} style={styles.editProgram}><Text style={styles.editProgramText}>{editingProgram ? "DONE EDITING" : "EDIT THIS WORKOUT"}</Text></Pressable>}
+    {editingProgram && <View style={styles.customCard}><Text style={styles.customTitle}>WORKOUT DETAILS</Text><TextInput value={displayedWorkout.title} onChangeText={(title) => onWorkoutDetails({ title })} placeholder="Workout title" placeholderTextColor="#687067" style={styles.customInput} /><TextInput value={displayedWorkout.focus} onChangeText={(focus) => onWorkoutDetails({ focus })} placeholder="Workout focus" placeholderTextColor="#687067" style={styles.customInput} /></View>}
+    {!activeSession && !editingProgram && <Pressable style={styles.finish} onPress={onBegin}><Text style={styles.finishText}>START WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable>}
+    {displayedWorkout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} onChange={onSetChange} onReplace={activeSession || editingProgram ? undefined : onReplaceExercise} onLoadingType={activeSession || editingProgram ? undefined : onLoadingType} weightUnit={weightUnit} effortMetric={effortMetric} editingProgram={editingProgram} onPrescription={onPrescription} onMove={onMoveExercise} onRemove={onRemoveExercise} onSetCompleted={startRest} />)}
+    {editingProgram && <View style={styles.customCard}><Text style={styles.customTitle}>ADD CUSTOM EXERCISE</Text><TextInput value={customName} onChangeText={setCustomName} placeholder="Exercise name" placeholderTextColor="#687067" style={styles.customInput} /><Pressable disabled={!customName.trim()} onPress={() => { onAddCustomExercise(customName); setCustomName(""); }} style={[styles.addCustom, !customName.trim() && styles.addCustomDisabled]}><Text style={styles.addCustomText}>ADD TO WORKOUT</Text></Pressable></View>}
     {activeSession && <><Pressable style={styles.finish} onPress={onFinish}><Text style={styles.finishText}>FINISH WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable><Pressable style={styles.cancel} onPress={onCancel}><Text style={styles.cancelText}>CANCEL WORKOUT</Text></Pressable></>}
   </>;
 }
@@ -50,4 +102,7 @@ const styles = StyleSheet.create({
   summary: { backgroundColor: "#1a1f1a", borderRadius: 10, marginTop: 16, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, summaryNumber: { color: "#f5f6f0", fontSize: 23, fontWeight: "800" }, dim: { color: "#727a70" }, summaryLabel: { color: "#7d857c", fontSize: 8, fontWeight: "800", letterSpacing: .8, marginTop: 4 }, summaryDivider: { height: 32, width: 1, backgroundColor: "#303730" }, focus: { color: "#e1e6dd", fontSize: 10, fontWeight: "700", maxWidth: 70 },
   finish: { height: 58, borderRadius: 9, backgroundColor: "#d8ff38", marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }, finishText: { color: "#15190f", fontWeight: "900", fontSize: 13, letterSpacing: 1 }, finishArrow: { color: "#15190f", fontSize: 22, fontWeight: "700" },
   cancel: { height: 46, borderRadius: 8, borderColor: "#6e7770", borderWidth: 1, marginTop: 10, alignItems: "center", justifyContent: "center" }, cancelText: { color: "#aeb5ad", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
+  editProgram: { height: 42, borderRadius: 7, borderWidth: 1, borderColor: "#65705f", marginTop: 12, alignItems: "center", justifyContent: "center" }, editProgramText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .8 },
+  customCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 15, marginTop: 14 }, customTitle: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, customInput: { height: 40, borderWidth: 1, borderColor: "#4b5548", borderRadius: 6, color: "#f3f5f1", paddingHorizontal: 10, marginTop: 10 }, addCustom: { height: 40, backgroundColor: "#d8ff38", borderRadius: 6, alignItems: "center", justifyContent: "center", marginTop: 8 }, addCustomDisabled: { opacity: .4 }, addCustomText: { color: "#15190f", fontSize: 9, fontWeight: "900" },
+  restTimer: { backgroundColor: "#d8ff38", borderRadius: 9, marginTop: 10, padding: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, restLabel: { color: "#35400f", fontSize: 8, fontWeight: "900", letterSpacing: .8 }, restTime: { color: "#15190f", fontSize: 27, fontWeight: "900", marginTop: 1 }, restActions: { flexDirection: "row", gap: 6 }, restButton: { borderWidth: 1, borderColor: "#697a1f", borderRadius: 5, paddingHorizontal: 9, paddingVertical: 8 }, restButtonText: { color: "#27300d", fontSize: 8, fontWeight: "900" },
 });

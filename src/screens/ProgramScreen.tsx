@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CoachingProfile } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
+import { AppSettings } from "../storage/migrations";
 
 const GOALS: { value: TrainingStyle; label: string; detail: string }[] = [
   { value: "strength", label: "Strength", detail: "Heavier compounds and lower reps" },
@@ -14,15 +15,17 @@ const EQUIPMENT: Equipment[] = ["barbell", "dumbbell", "cable", "machine", "smit
 type ProgramScreenProps = {
   trainingDays: number;
   profile: CoachingProfile;
+  settings: AppSettings;
   backupBusy: boolean;
   onDays: (days: number) => void;
   onProfile: (profile: CoachingProfile) => void;
+  onSettings: (settings: AppSettings) => void;
   onApply: () => void;
   onExportBackup: () => void;
   onImportBackup: () => void;
 };
 
-export function ProgramScreen({ trainingDays, profile, backupBusy, onDays, onProfile, onApply, onExportBackup, onImportBackup }: ProgramScreenProps) {
+export function ProgramScreen({ trainingDays, profile, settings, backupBusy, onDays, onProfile, onSettings, onApply, onExportBackup, onImportBackup }: ProgramScreenProps) {
   const update = (changes: Partial<CoachingProfile>) => onProfile({ ...profile, ...changes });
   const toggleEquipment = (item: Equipment) => {
     const selected = profile.availableEquipment.includes(item);
@@ -37,6 +40,12 @@ export function ProgramScreen({ trainingDays, profile, backupBusy, onDays, onPro
     <Text style={styles.builderLabel}>TRAINING DAYS</Text><View style={styles.choiceRow}>{[2, 3, 4, 5].map((days) => <Pressable key={days} onPress={() => onDays(days)} style={[styles.dayChoice, trainingDays === days && styles.dayChoiceActive]}><Text style={[styles.dayChoiceText, trainingDays === days && styles.dayChoiceTextActive]}>{days}</Text><Text style={[styles.dayChoiceCaption, trainingDays === days && styles.dayChoiceTextActive]}>DAYS</Text></Pressable>)}</View>
     <Text style={styles.builderLabel}>SESSION LENGTH</Text><View style={styles.wrap}>{[30, 45, 60, 75, 90].map((minutes) => <Pressable key={minutes} onPress={() => update({ sessionMinutes: minutes })} style={[styles.chip, profile.sessionMinutes === minutes && styles.chipActive]}><Text style={[styles.chipText, profile.sessionMinutes === minutes && styles.chipTextActive]}>{minutes} MIN</Text></Pressable>)}</View>
     <Text style={styles.builderLabel}>AVAILABLE EQUIPMENT</Text><View style={styles.wrap}>{EQUIPMENT.map((item) => <Pressable key={item} onPress={() => toggleEquipment(item)} style={[styles.chip, profile.availableEquipment.includes(item) && styles.chipActive]}><Text style={[styles.chipText, profile.availableEquipment.includes(item) && styles.chipTextActive]}>{item.replaceAll("-", " ").toUpperCase()}</Text></Pressable>)}</View>
+    <Text style={styles.builderLabel}>TRAINING SETTINGS</Text>
+    <View style={styles.settingCard}>
+      <Text style={styles.settingName}>WEIGHT UNIT</Text><View style={styles.choiceRow}>{(["kg", "lb"] as const).map((unit) => <Pressable key={unit} onPress={() => onSettings({ ...settings, weightUnit: unit })} style={[styles.smallChoice, settings.weightUnit === unit && styles.smallChoiceActive]}><Text style={[styles.smallChoiceText, settings.weightUnit === unit && styles.smallChoiceTextActive]}>{unit.toUpperCase()}</Text></Pressable>)}</View>
+      <Text style={styles.settingName}>WORKING-SET EFFORT</Text><View style={styles.choiceRow}>{(["rir", "rpe"] as const).map((metric) => <Pressable key={metric} onPress={() => onSettings({ ...settings, effortMetric: metric })} style={[styles.smallChoice, settings.effortMetric === metric && styles.smallChoiceActive]}><Text style={[styles.smallChoiceText, settings.effortMetric === metric && styles.smallChoiceTextActive]}>{metric.toUpperCase()}</Text></Pressable>)}</View>
+      <Text style={styles.settingName}>DEFAULT REST TIMER</Text><View style={styles.wrap}>{[60, 90, 120, 180].map((seconds) => <Pressable key={seconds} onPress={() => onSettings({ ...settings, defaultRestSeconds: seconds })} style={[styles.chip, settings.defaultRestSeconds === seconds && styles.chipActive]}><Text style={[styles.chipText, settings.defaultRestSeconds === seconds && styles.chipTextActive]}>{seconds < 60 ? `${seconds} SEC` : `${seconds / 60} MIN`}</Text></Pressable>)}</View>
+    </View>
     <View style={styles.preview}><Text style={styles.previewTitle}>{trainingDays}-day {profile.goal.replaceAll("-", " ")} plan</Text><Text style={styles.previewText}>Approximately {estimatedExercises} exercises per session for a {profile.sessionMinutes}-minute target. Exercise difficulty is capped at {profile.experience} and restricted to your selected equipment.</Text></View>
     <Pressable style={styles.finish} onPress={onApply}><Text style={styles.finishText}>GENERATE MY PROGRAM</Text><Text style={styles.finishArrow}>→</Text></Pressable>
     <Text style={styles.builderLabel}>DATA & BACKUP</Text>
@@ -66,4 +75,5 @@ const styles = StyleSheet.create({
   preview: { backgroundColor: "#1a1f1a", borderLeftWidth: 3, borderLeftColor: "#d8ff38", borderRadius: 7, padding: 14, marginTop: 20 }, previewTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800", textTransform: "capitalize" }, previewText: { color: "#8c958a", fontSize: 11, lineHeight: 16, marginTop: 5 },
   finish: { height: 58, borderRadius: 9, backgroundColor: "#d8ff38", marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }, finishText: { color: "#15190f", fontWeight: "900", fontSize: 12, letterSpacing: .8 }, finishArrow: { color: "#15190f", fontSize: 22, fontWeight: "700" },
   backupCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, backupTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800" }, backupText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 6 }, backupActions: { flexDirection: "row", gap: 8, marginTop: 15 }, backupPrimary: { flex: 1, minHeight: 44, borderRadius: 7, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center" }, backupPrimaryText: { color: "#15190f", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, backupSecondary: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#626b60", alignItems: "center", justifyContent: "center" }, backupSecondaryText: { color: "#e9ede6", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, buttonMuted: { opacity: .55 },
+  settingCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, gap: 9 }, settingName: { color: "#8d958c", fontSize: 8, fontWeight: "900", letterSpacing: .8, marginTop: 4 },
 });

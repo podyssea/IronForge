@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialFourDaySplit, startActiveSession } from "../domain/training";
-import { migrateStoredState } from "./migrations";
+import { DEFAULT_APP_SETTINGS, migrateStoredState } from "./migrations";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 
 const program = { trainingDays: 4, phase: "hypertrophy" as const };
@@ -83,6 +83,19 @@ describe("storage migrations", () => {
     const migrated = migrateStoredState({ schemaVersion: 8, workouts, records: [], program, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] });
     expect(migrated?.workouts[0].exercises[0].loadingType).toBe("plate-loaded");
     expect(migrated?.activeSession?.readiness?.score).toBe(80);
+    expect(migrated?.settings).toEqual(DEFAULT_APP_SETTINGS);
+  });
+
+  it("restores schema version 9 training settings and effort data", () => {
+    const workouts = initialFourDaySplit();
+    workouts[0].exercises[0].loadIncrement = 1.25;
+    workouts[0].exercises[0].restSeconds = 150;
+    workouts[0].exercises[0].sets[2].rir = 2;
+    const settings = { weightUnit: "lb" as const, effortMetric: "rpe" as const, defaultRestSeconds: 120 };
+    const migrated = migrateStoredState({ schemaVersion: 9, workouts, records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings });
+    expect(migrated?.settings).toEqual(settings);
+    expect(migrated?.workouts[0].exercises[0]).toMatchObject({ loadIncrement: 1.25, restSeconds: 150 });
+    expect(migrated?.workouts[0].exercises[0].sets[2].rir).toBe(2);
   });
 
   it("rejects malformed state", () => {

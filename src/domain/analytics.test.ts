@@ -16,12 +16,15 @@ describe("training analytics", () => {
     expect(analytics.sessions).toBe(2);
     expect(analytics.sets).toBe(46);
     expect(analytics.volume).toBe(31525);
+    expect(analytics.workingSets).toBe(26);
+    expect(analytics.warmupSets).toBe(20);
+    expect(analytics.workingVolume).toBeLessThan(analytics.volume);
     expect(analytics.consistencyPercent).toBe(50);
   });
 
   it("builds chronological exercise progress points", () => {
     const progress = exerciseProgress(personalBaselineRecords(), "incline-smith", "all", now);
-    expect(progress).toEqual([{ recordId: "imported-2026-07-20-upper-a", completedAt: "2026-07-20T18:00:00.000Z", weight: 90, reps: 8, volume: 2880 }]);
+    expect(progress).toEqual([{ recordId: "imported-2026-07-20-upper-a", completedAt: "2026-07-20T18:00:00.000Z", weight: 90, reps: 8, volume: 1440 }]);
   });
 
   it("finds personal records from completed sets", () => {

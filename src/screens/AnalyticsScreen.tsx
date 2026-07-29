@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AnalyticsRange, calculateAnalytics, exerciseProgress, personalRecords, recordsInRange } from "../domain/analytics";
-import { SessionRecord } from "../domain/training";
+import { displayWeight, SessionRecord, WeightUnit, weightUnitLabel } from "../domain/training";
 
 type Section = "overview" | "progress" | "records";
 
-export function AnalyticsScreen({ records, trainingDays }: { records: SessionRecord[]; trainingDays: number }) {
+export function AnalyticsScreen({ records, trainingDays, weightUnit }: { records: SessionRecord[]; trainingDays: number; weightUnit: WeightUnit }) {
   const [section, setSection] = useState<Section>("overview");
   const [range, setRange] = useState<AnalyticsRange>(7);
   const exerciseOptions = useMemo(() => {
@@ -24,29 +24,30 @@ export function AnalyticsScreen({ records, trainingDays }: { records: SessionRec
     <Text style={styles.kicker}>TRAINING INTELLIGENCE</Text><Text style={styles.title}>Analytics</Text>
     <View style={styles.tabs}>{(["overview", "progress", "records"] as Section[]).map((item) => <Pressable key={item} onPress={() => setSection(item)} style={[styles.tab, section === item && styles.tabActive]}><Text style={[styles.tabText, section === item && styles.tabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
     <View style={styles.ranges}>{([7, 30, "all"] as AnalyticsRange[]).map((item) => <Pressable key={String(item)} onPress={() => setRange(item)} style={[styles.range, range === item && styles.rangeActive]}><Text style={[styles.rangeText, range === item && styles.rangeTextActive]}>{item === "all" ? "ALL TIME" : `${item} DAYS`}</Text></Pressable>)}</View>
-    {section === "overview" ? <Overview analytics={analytics} /> : section === "progress" ? <Progress options={exerciseOptions} selectedId={selectedExerciseId} onSelect={setExerciseId} points={progress} /> : <Records records={prs} />}
+    {section === "overview" ? <Overview analytics={analytics} weightUnit={weightUnit} /> : section === "progress" ? <Progress options={exerciseOptions} selectedId={selectedExerciseId} onSelect={setExerciseId} points={progress} weightUnit={weightUnit} /> : <Records records={prs} weightUnit={weightUnit} />}
   </>;
 }
 
-function Overview({ analytics }: { analytics: ReturnType<typeof calculateAnalytics> }) {
+function Overview({ analytics, weightUnit }: { analytics: ReturnType<typeof calculateAnalytics>; weightUnit: WeightUnit }) {
   return <><View style={styles.coach}><Text style={styles.coachLabel}>COACH INSIGHT</Text><Text style={styles.coachText}>{analytics.coachSummary}</Text></View><View style={styles.grid}>
     <Metric value={String(analytics.sessions)} label="WORKOUTS" /><Metric value={String(analytics.sets)} label="SETS" />
-    <Metric value={analytics.volume.toLocaleString()} label="KG VOLUME" /><Metric value={`${analytics.consistencyPercent}%`} label="CONSISTENCY" />
-  </View>{analytics.volumeChangePercent !== undefined && <Text style={styles.change}>Volume is {Math.abs(analytics.volumeChangePercent)}% {analytics.volumeChangePercent >= 0 ? "higher" : "lower"} than the previous period.</Text>}</>;
+    <Metric value={String(analytics.workingSets)} label="WORKING SETS" /><Metric value={`${analytics.consistencyPercent}%`} label="CONSISTENCY" />
+    <Metric value={displayWeight(analytics.workingVolume, weightUnit).toLocaleString()} label={`WORK ${weightUnitLabel(weightUnit).toUpperCase()}·REP`} /><Metric value={displayWeight(analytics.warmupVolume, weightUnit).toLocaleString()} label={`WARM-UP ${weightUnitLabel(weightUnit).toUpperCase()}·REP`} />
+  </View>{analytics.volumeChangePercent !== undefined && <Text style={styles.change}>Working volume is {Math.abs(analytics.volumeChangePercent)}% {analytics.volumeChangePercent >= 0 ? "higher" : "lower"} than the previous period.</Text>}</>;
 }
 
 function Metric({ value, label }: { value: string; label: string }) {
   return <View style={styles.metric}><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
 }
 
-function Progress({ options, selectedId, onSelect, points }: { options: [string, string][]; selectedId?: string; onSelect: (id: string) => void; points: ReturnType<typeof exerciseProgress> }) {
+function Progress({ options, selectedId, onSelect, points, weightUnit }: { options: [string, string][]; selectedId?: string; onSelect: (id: string) => void; points: ReturnType<typeof exerciseProgress>; weightUnit: WeightUnit }) {
   if (!options.length) return <Empty text="Complete a workout to unlock exercise trends." />;
-  return <><Text style={styles.sectionLabel}>SELECT EXERCISE</Text><View style={styles.exerciseList}>{options.map(([id, name]) => <Pressable key={id} onPress={() => onSelect(id)} style={[styles.exerciseChip, selectedId === id && styles.exerciseChipActive]}><Text style={[styles.exerciseChipText, selectedId === id && styles.exerciseChipTextActive]}>{name}</Text></Pressable>)}</View><Text style={styles.sectionLabel}>PERFORMANCE TREND</Text>{points.length < 2 && <Text style={styles.hint}>Baseline established. Complete this exercise again to unlock a comparison.</Text>}{points.map((point) => <View key={point.recordId} style={styles.point}><View><Text style={styles.pointDate}>{new Date(point.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</Text><Text style={styles.pointDetail}>{point.weight} kg × {point.reps} reps</Text></View><Text style={styles.pointVolume}>{point.volume.toLocaleString()} kg</Text></View>)}</>;
+  return <><Text style={styles.sectionLabel}>SELECT EXERCISE</Text><View style={styles.exerciseList}>{options.map(([id, name]) => <Pressable key={id} onPress={() => onSelect(id)} style={[styles.exerciseChip, selectedId === id && styles.exerciseChipActive]}><Text style={[styles.exerciseChipText, selectedId === id && styles.exerciseChipTextActive]}>{name}</Text></Pressable>)}</View><Text style={styles.sectionLabel}>WORKING-SET TREND</Text>{points.length < 2 && <Text style={styles.hint}>Baseline established. Complete this exercise again to unlock a comparison.</Text>}{points.map((point) => <View key={point.recordId} style={styles.point}><View><Text style={styles.pointDate}>{new Date(point.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</Text><Text style={styles.pointDetail}>{displayWeight(point.weight, weightUnit)} {weightUnitLabel(weightUnit)} × {point.reps} reps</Text></View><Text style={styles.pointVolume}>{displayWeight(point.volume, weightUnit).toLocaleString()} {weightUnitLabel(weightUnit)}</Text></View>)}</>;
 }
 
-function Records({ records }: { records: ReturnType<typeof personalRecords> }) {
+function Records({ records, weightUnit }: { records: ReturnType<typeof personalRecords>; weightUnit: WeightUnit }) {
   if (!records.length) return <Empty text="Complete a workout to establish personal records." />;
-  return <><Text style={styles.sectionLabel}>PERSONAL BESTS</Text>{records.map((record) => <View key={record.exerciseId} style={styles.record}><Text style={styles.recordName}>{record.exerciseName}</Text><View style={styles.recordStats}><Text style={styles.recordValue}>{record.maxWeight} kg<Text style={styles.recordLabel}> MAX</Text></Text><Text style={styles.recordValue}>{record.maxReps}<Text style={styles.recordLabel}> REPS</Text></Text><Text style={styles.recordValue}>{record.bestSetVolume.toLocaleString()}<Text style={styles.recordLabel}> KG·REP</Text></Text></View></View>)}</>;
+  return <><Text style={styles.sectionLabel}>WORKING-SET BESTS</Text>{records.map((record) => <View key={record.exerciseId} style={styles.record}><Text style={styles.recordName}>{record.exerciseName}</Text><View style={styles.recordStats}><Text style={styles.recordValue}>{displayWeight(record.maxWeight, weightUnit)} {weightUnitLabel(weightUnit)}<Text style={styles.recordLabel}> MAX</Text></Text><Text style={styles.recordValue}>{record.maxReps}<Text style={styles.recordLabel}> REPS</Text></Text><Text style={styles.recordValue}>{displayWeight(record.bestSetVolume, weightUnit).toLocaleString()}<Text style={styles.recordLabel}> {weightUnitLabel(weightUnit).toUpperCase()}·REP</Text></Text></View></View>)}</>;
 }
 
 function Empty({ text }: { text: string }) { return <View style={styles.empty}><Text style={styles.emptyText}>{text}</Text></View>; }
