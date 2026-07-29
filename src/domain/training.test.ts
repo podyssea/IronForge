@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, generateFromStyle, initialFourDaySplit, isSessionComplete, progression, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession } from "./training";
+import { applySessionPerformance, applyTrainingPhase, completeActiveSession, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, progression, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -80,23 +80,47 @@ describe("active session lifecycle", () => {
 
   it("creates a record from valid completed work", () => {
     const session = startActiveSession(initialFourDaySplit()[0], new Date("2026-01-01T10:00:00.000Z"));
-    session.exercises[0].sets[0] = { weight: 42.5, reps: 8, completed: true };
-    session.exercises[0].sets[1] = { weight: 42.5, reps: 0, completed: true };
+    session.exercises[0].sets[2] = { weight: 42.5, reps: 0, completed: true };
+    session.exercises[0].sets[3] = { weight: 42.5, reps: 8, completed: true };
     const record = completeActiveSession(session, new Date("2026-01-01T11:00:00.000Z"));
     expect(record.completedAt).toBe("2026-01-01T11:00:00.000Z");
     expect(record.volume).toBe(340);
     expect(record.exercises[0].lastWeight).toBe(42.5);
-    expect(record.exercises[0].sets[1].completed).toBe(false);
+    expect(record.exercises[0].sets[2].completed).toBe(false);
   });
 
   it("updates only the source workout and completed exercises", () => {
     const workouts = initialFourDaySplit();
     const session = startActiveSession(workouts[0]);
-    session.exercises[0].sets[0] = { weight: 45, reps: 8, completed: true };
+    session.exercises[0].sets[2] = { weight: 45, reps: 8, completed: true };
     const updated = applySessionPerformance(workouts, session);
     expect(updated[0].exercises[0].lastWeight).toBe(45);
     expect(updated[0].exercises[1].lastWeight).toBe(workouts[0].exercises[1].lastWeight);
     expect(updated[1]).toBe(workouts[1]);
+  });
+});
+
+describe("warm-up and working sets", () => {
+  it("uses 50% and 70% warm-ups before two working sets", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].lastWeight = 100;
+    const exercise = startActiveSession(workout).exercises[0];
+    expect(exercise.sets.map((set) => set.weight)).toEqual([50, 70, 100, 100]);
+  });
+
+  it("uses one 70% warm-up for a three-set exercise", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[1].lastWeight = 80;
+    const exercise = startActiveSession(workout).exercises[1];
+    expect(exercise.sets.map((set) => set.weight)).toEqual([56, 80, 80]);
+  });
+
+  it("rounds warm-ups to the selected machine increment", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].lastWeight = 85;
+    workout.exercises[0].loadingType = "pin-loaded";
+    const exercise = startActiveSession(workout).exercises[0];
+    expect(exercise.sets.map((set) => set.weight)).toEqual([45, 60, 85, 85]);
   });
 });
 
@@ -109,6 +133,13 @@ describe("progression", () => {
 
   it("recommends holding until the rep target is reached", () => {
     expect(progression(initialFourDaySplit()[0].exercises[0])).toMatch(/Progress when/);
+  });
+
+  it("uses the performed working load for a newly substituted exercise", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    exercise.lastWeight = 0;
+    exercise.sets = exercise.sets.map((set, index) => ({ ...set, weight: index >= 2 ? 100 : set.weight, reps: exercise.repRange[1], completed: true }));
+    expect(progression(exercise)).toContain("102.5 kg");
   });
 });
 
@@ -131,5 +162,31 @@ describe("exercise replacement", () => {
     known.lastWeight = 92.5;
     const updated = replaceWorkoutExercise(workouts, workouts[2].id, "incline-machine", { id: known.id, name: known.name });
     expect(updated[2].exercises[0].lastWeight).toBe(92.5);
+  });
+
+  it("restores the best historical working-set load for a replacement", () => {
+    const workouts = initialFourDaySplit();
+    const historical = {
+      ...workouts[0].exercises[0],
+      id: "dumbbell-bench",
+      name: "Dumbbell Bench Press",
+      loadingType: "plate-loaded" as const,
+      sets: workouts[0].exercises[0].sets.map((set, index) => ({ ...set, weight: index === 2 ? 90 : index === 3 ? 100 : 40, completed: true })),
+    };
+    const records = [{ id: "history", completedAt: "2026-07-27T10:00:00.000Z", workoutTitle: "Upper", exercises: [historical], volume: 0 }];
+    const updated = replaceWorkoutExercise(workouts, "upper-a", "incline-smith", { id: "dumbbell-bench", name: "Dumbbell Bench Press" }, records);
+    expect(updated[0].exercises[0].lastWeight).toBe(100);
+    expect(updated[0].exercises[0].loadingType).toBe("plate-loaded");
+    expect(updated[0].exercises[0].sets.map((set) => set.weight)).toEqual([50, 70, 100, 100]);
+  });
+});
+
+describe("loading type requirement", () => {
+  it("reports exercises that are not configured", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].loadingType = "plate-loaded";
+    expect(exercisesMissingLoadingType(workout)).toHaveLength(workout.exercises.length - 1);
+    workout.exercises.forEach((exercise) => { exercise.loadingType = "pin-loaded"; });
+    expect(exercisesMissingLoadingType(workout)).toEqual([]);
   });
 });

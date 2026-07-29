@@ -28,7 +28,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
   const volume = sessionVolume(displayedWorkout.exercises);
 
   return <>
-    <View style={styles.topline}><Image source={require("../../assets/ironforge-wordmark.png")} resizeMode="contain" style={styles.brandLogo} accessibilityLabel="IronForge" /><Text style={styles.live}>● {activeSession ? "SESSION ACTIVE" : "READY"}</Text></View>
+    <View style={styles.topline}><View style={styles.brand}><Image source={require("../../assets/ironforge-logo.png")} resizeMode="contain" style={styles.brandLogo} accessibilityLabel="IronForge" /><Text style={styles.brandText}>IRONFORGE</Text></View><Text style={styles.live}>● {activeSession ? "SESSION ACTIVE" : "READY"}</Text></View>
     <Text style={styles.kicker}>{activeSession ? "WORKOUT IN PROGRESS" : "TODAY'S TRAINING"}</Text><Text style={styles.title}>{displayedWorkout.title.split(" · ").pop()}</Text>
     <View style={styles.dayTabs}>{workouts.map((item, index) => <Pressable key={item.id} disabled={Boolean(activeSession)} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index, disabled: Boolean(activeSession) }} accessibilityLabel={`Day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => onSelect(index)} style={[styles.day, selectedWorkoutIndex === index && styles.dayActive, activeSession && selectedWorkoutIndex !== index && styles.dayDisabled]}><Text style={[styles.dayText, selectedWorkoutIndex === index && styles.dayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
     {activeSession && <View style={styles.activeBanner}><Text style={styles.activeBannerTitle}>SESSION SAVED AUTOMATICALLY</Text><Text style={styles.activeBannerText}>Started {new Date(activeSession.startedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Resume anytime from the Log tab.</Text></View>}
@@ -42,7 +42,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
 }
 
 const styles = StyleSheet.create({
-  topline: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }, brandLogo: { width: 150, height: 50 }, live: { color: "#d8ff38", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  topline: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }, brand: { flexDirection: "row", alignItems: "center", gap: 8 }, brandLogo: { width: 36, height: 36, borderRadius: 8 }, brandText: { color: "#f2f4ef", fontSize: 15, fontWeight: "900", letterSpacing: 1.1 }, live: { color: "#d8ff38", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   kicker: { color: "#8d958c", fontSize: 10, fontWeight: "800", letterSpacing: 1.5, marginTop: 30 }, title: { color: "#f8faf5", fontSize: 34, fontWeight: "800", marginTop: 4 },
   dayTabs: { flexDirection: "row", marginTop: 23, gap: 7 }, day: { flex: 1, height: 40, borderRadius: 7, justifyContent: "center", alignItems: "center", backgroundColor: "#1a1f1a" }, dayActive: { backgroundColor: "#d8ff38" }, dayDisabled: { opacity: .4 }, dayText: { color: "#80877f", fontWeight: "800", fontSize: 11 }, dayTextActive: { color: "#141710" },
   activeBanner: { backgroundColor: "#202a1d", borderColor: "#586d35", borderWidth: 1, borderRadius: 8, marginTop: 14, padding: 12 }, activeBannerTitle: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, activeBannerText: { color: "#aab3a7", fontSize: 11, lineHeight: 16, marginTop: 4 },

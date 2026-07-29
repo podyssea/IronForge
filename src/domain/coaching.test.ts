@@ -41,11 +41,11 @@ describe("adaptive coaching", () => {
     expect(buildWorkoutRecommendations(workout, records, [decision]).some((item) => item.exerciseId === recommendation.exerciseId)).toBe(false);
   });
 
-  it("applies an accepted or modified load to every prescribed set", () => {
+  it("applies an accepted or modified load with scaled warm-ups", () => {
     const workouts = initialFourDaySplit();
     const recommendation = buildWorkoutRecommendations(workouts[0], [performance(8)], [])[0];
     const updated = applyCoachingRecommendation(workouts, recommendation, 37.2);
     expect(updated[0].exercises[0].lastWeight).toBe(37);
-    expect(updated[0].exercises[0].sets.every((set) => set.weight === 37)).toBe(true);
+    expect(updated[0].exercises[0].sets.map((set) => set.weight)).toEqual([18.5, 26, 37, 37]);
   });
 });

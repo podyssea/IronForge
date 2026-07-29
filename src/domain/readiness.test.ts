@@ -7,7 +7,7 @@ describe("readiness-aware workouts", () => {
     const session = startRecoveryAwareSession(workout, { energy: 5, sleep: 5, soreness: 1 });
     expect(session.readiness).toMatchObject({ score: 100, level: "ready" });
     expect(session.exercises[0].targetSets).toBe(workout.exercises[0].targetSets);
-    expect(session.exercises[0].sets[0].weight).toBe(workout.exercises[0].sets[0].weight);
+    expect(session.exercises[0].sets.map((set) => set.weight)).toEqual([17.5, 24.5, 35, 35]);
   });
 
   it("reduces load and one set when recovery is low", () => {
@@ -16,7 +16,7 @@ describe("readiness-aware workouts", () => {
     const session = startRecoveryAwareSession(workout, { energy: 1, sleep: 1, soreness: 5 });
     expect(session.readiness?.level).toBe("low");
     expect(session.exercises[0].targetSets).toBe(3);
-    expect(session.exercises[0].sets[0].weight).toBe(30);
+    expect(session.exercises[0].sets.map((set) => set.weight)).toEqual([20, 30, 30]);
   });
 
   it("rejects values outside the five-point scale", () => {

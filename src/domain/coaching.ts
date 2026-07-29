@@ -1,5 +1,5 @@
 import { Equipment, ExperienceLevel, TrainingStyle } from "./exerciseLibrary";
-import { Exercise, loadIncrement, roundToIncrement, SessionRecord, Workout } from "./training";
+import { applyWarmupLoads, Exercise, loadIncrement, roundToIncrement, SessionRecord, workingSets, Workout } from "./training";
 
 export type CoachingProfile = {
   goal: TrainingStyle;
@@ -54,10 +54,10 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
   const latestRecord = performances[0].record;
   const recent = performances.slice(0, 2);
   const successful = recent.length === 2 && recent.every(({ exercise: performed }) => {
-    const completed = performed.sets.filter((set) => set.completed);
-    return completed.length >= exercise.targetSets && completed.every((set) => set.reps >= exercise.repRange[1]);
+    const completed = workingSets(performed).filter((set) => set.completed);
+    return completed.length === Math.min(2, performed.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]);
   });
-  const repeatedlyIncomplete = recent.length === 2 && recent.every(({ exercise: performed }) => performed.sets.filter((set) => set.completed).length < exercise.targetSets);
+  const repeatedlyIncomplete = recent.length === 2 && recent.every(({ exercise: performed }) => workingSets(performed).filter((set) => set.completed).length < Math.min(2, performed.sets.length));
   const plateau = performances.length === 3 && performances.every(({ exercise: performed }) => performed.lastWeight === performances[0].exercise.lastWeight)
     && averageReps(performances[0].exercise) <= averageReps(performances[2].exercise);
   const increment = loadIncrement(exercise);
@@ -65,14 +65,14 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
   const action: CoachingRecommendation["action"] = successful && exercise.lastWeight > 0 ? "increase" : repeatedlyIncomplete && exercise.lastWeight > 0 ? "reduce" : "hold";
   const suggestedWeight = action === "increase" ? exercise.lastWeight + increment : action === "reduce" ? reduction : exercise.lastWeight;
   const reason = action === "increase"
-    ? `You reached ${exercise.repRange[1]}+ reps across every prescribed set in your last two sessions.`
+    ? `You reached ${exercise.repRange[1]}+ reps across both working sets in your last two sessions.`
     : action === "reduce"
       ? "You missed prescribed sets in your last two sessions. A small reset can rebuild momentum."
       : plateau
         ? "Your load and average reps have stalled across three sessions. Hold the load and aim to add a rep."
         : recent.length < 2
           ? "One performance is logged. Hold this load while the coach builds a reliable trend."
-          : `Keep this load until every set reaches ${exercise.repRange[1]} reps.`;
+      : `Keep this load until both working sets reach ${exercise.repRange[1]} reps.`;
   return {
     id: `${workoutId}:${exercise.id}:${latestRecord.id}`,
     workoutId,
@@ -86,7 +86,7 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
 }
 
 function averageReps(exercise: Exercise): number {
-  const completed = exercise.sets.filter((set) => set.completed);
+  const completed = workingSets(exercise).filter((set) => set.completed);
   return completed.length ? completed.reduce((sum, set) => sum + set.reps, 0) / completed.length : 0;
 }
 
@@ -97,10 +97,9 @@ function roundLoad(weight: number): number {
 export function applyCoachingRecommendation(workouts: Workout[], recommendation: CoachingRecommendation, selectedWeight: number): Workout[] {
   return workouts.map((workout) => workout.id !== recommendation.workoutId ? workout : {
     ...workout,
-    exercises: workout.exercises.map((exercise) => exercise.id !== recommendation.exerciseId ? exercise : {
+    exercises: workout.exercises.map((exercise) => exercise.id !== recommendation.exerciseId ? exercise : applyWarmupLoads({
       ...exercise,
       lastWeight: roundToIncrement(selectedWeight, exercise.loadingType),
-      sets: exercise.sets.map((set) => ({ ...set, weight: roundToIncrement(selectedWeight, exercise.loadingType) })),
-    }),
+    }, roundToIncrement(selectedWeight, exercise.loadingType))),
   });
 }
