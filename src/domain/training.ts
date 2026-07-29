@@ -1,4 +1,6 @@
-export type SetLog = { weight: number; reps: number; completed: boolean };
+export type WeightUnit = "kg" | "lb";
+export type EffortMetric = "rir" | "rpe";
+export type SetLog = { weight: number; reps: number; completed: boolean; rir?: number; rpe?: number };
 export type LoadingType = "pin-loaded" | "plate-loaded";
 export type ReadinessCheckIn = { energy: number; sleep: number; soreness: number };
 export type ReadinessAdjustment = {
@@ -19,6 +21,8 @@ export type Exercise = {
   sets: SetLog[];
   selectionReason?: string;
   loadingType?: LoadingType;
+  loadIncrement?: number;
+  restSeconds?: number;
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
@@ -104,6 +108,8 @@ export function sessionVolume(exercises: Exercise[]): number {
 export function setValidationError(set: SetLog): string | null {
   if (!Number.isFinite(set.weight) || set.weight < 0) return "Weight must be zero or greater";
   if (!Number.isInteger(set.reps) || set.reps < 1) return "Enter at least 1 rep";
+  if (set.rir !== undefined && (!Number.isInteger(set.rir) || set.rir < 0 || set.rir > 5)) return "RIR must be from 0 to 5";
+  if (set.rpe !== undefined && (!Number.isFinite(set.rpe) || set.rpe < 5 || set.rpe > 10)) return "RPE must be from 5 to 10";
   return null;
 }
 
@@ -147,7 +153,7 @@ export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.la
     ...exercise,
     sets: exercise.sets.map((set, index) => {
       const scale = warmupCount === 2 && index === 0 ? 0.5 : index < warmupCount ? 0.7 : 1;
-      return { ...set, weight: roundToIncrement(workingWeight * scale, exercise.loadingType), completed: false };
+      return { ...set, weight: roundExerciseLoad(workingWeight * scale, exercise), completed: false };
     }),
   };
 }
@@ -178,7 +184,7 @@ export function startRecoveryAwareSession(workout: Workout, checkIn: ReadinessCh
         ...exercise,
         targetSets,
         sets: exercise.sets.slice(0, targetSets),
-      }, roundToIncrement(exercise.lastWeight * adjustment.loadScale, exercise.loadingType));
+      }, roundExerciseLoad(exercise.lastWeight * adjustment.loadScale, exercise));
     }),
   };
 }
@@ -247,14 +253,15 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
   });
 }
 
-export function progression(exercise: Exercise): string {
+export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string {
   const completed = workingSets(exercise).filter((set) => set.completed);
   const best = bestCompletedWorkingSet(exercise);
-  if (completed.length === Math.min(2, exercise.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${best.weight + loadIncrement({ ...exercise, lastWeight: best.weight })} kg next time`;
+  if (completed.length === Math.min(2, exercise.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${displayWeight(best.weight + loadIncrement({ ...exercise, lastWeight: best.weight }), unit)} ${weightUnitLabel(unit)} next time`;
   return `Progress when both working sets reach ${exercise.repRange[1]} reps`;
 }
 
 export function loadIncrement(exercise: Exercise): number {
+  if (exercise.loadIncrement && exercise.loadIncrement > 0) return exercise.loadIncrement;
   if (exercise.loadingType === "pin-loaded") return 5;
   if (exercise.loadingType === "plate-loaded") return 2.5;
   return exercise.lastWeight >= 50 ? 2.5 : 1;
@@ -263,4 +270,64 @@ export function loadIncrement(exercise: Exercise): number {
 export function roundToIncrement(weight: number, loadingType?: LoadingType): number {
   const increment = loadingType === "pin-loaded" ? 5 : loadingType === "plate-loaded" ? 2.5 : 0.5;
   return Math.max(0, Math.round(weight / increment) * increment);
+}
+
+export function roundExerciseLoad(weight: number, exercise: Exercise): number {
+  if (!exercise.loadIncrement) return roundToIncrement(weight, exercise.loadingType);
+  const increment = exercise.loadIncrement;
+  return Math.max(0, Math.round(weight / increment) * increment);
+}
+
+export function displayWeight(weightKg: number, unit: WeightUnit): number {
+  const value = unit === "lb" ? weightKg * 2.2046226218 : weightKg;
+  return Math.round(value * 10) / 10;
+}
+
+export function storedWeight(displayedWeight: number, unit: WeightUnit): number {
+  const value = unit === "lb" ? displayedWeight / 2.2046226218 : displayedWeight;
+  return Math.round(value * 100) / 100;
+}
+
+export function weightUnitLabel(unit: WeightUnit): string {
+  return unit === "lb" ? "lb" : "kg";
+}
+
+export function updateExercisePrescription(exercise: Exercise, changes: { name?: string; targetSets?: number; repRange?: [number, number]; loadIncrement?: number; restSeconds?: number }): Exercise {
+  const targetSets = Math.max(2, Math.min(8, changes.targetSets ?? exercise.targetSets));
+  const repRange = changes.repRange ?? exercise.repRange;
+  const sets = Array.from({ length: targetSets }, (_, index) => exercise.sets[index] ?? {
+    weight: exercise.lastWeight,
+    reps: repRange[0],
+    completed: false,
+  });
+  return applyWarmupLoads({
+    ...exercise,
+    ...changes,
+    targetSets,
+    repRange: [Math.max(1, repRange[0]), Math.max(repRange[0], repRange[1])],
+    sets,
+  });
+}
+
+export function moveWorkoutExercise(workout: Workout, exerciseId: string, direction: -1 | 1): Workout {
+  const index = workout.exercises.findIndex((exercise) => exercise.id === exerciseId);
+  const destination = index + direction;
+  if (index < 0 || destination < 0 || destination >= workout.exercises.length) return workout;
+  const exercises = [...workout.exercises];
+  [exercises[index], exercises[destination]] = [exercises[destination], exercises[index]];
+  return { ...workout, exercises };
+}
+
+export function createCustomExercise(name: string, now = new Date()): Exercise {
+  return {
+    id: `custom-${now.getTime()}`,
+    name: name.trim(),
+    targetSets: 4,
+    repRange: [8, 12],
+    lastWeight: 0,
+    lastReps: 8,
+    loadIncrement: 2.5,
+    restSeconds: 90,
+    sets: Array.from({ length: 4 }, () => ({ weight: 0, reps: 8, completed: false })),
+  };
 }

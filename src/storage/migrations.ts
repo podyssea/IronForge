@@ -1,9 +1,12 @@
-import { ActiveSession, Exercise, SessionRecord, TrainingPhase, Workout } from "../domain/training";
+import { ActiveSession, EffortMetric, Exercise, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
+
+export type AppSettings = { weightUnit: WeightUnit; effortMetric: EffortMetric; defaultRestSeconds: number };
+export const DEFAULT_APP_SETTINGS: AppSettings = { weightUnit: "kg", effortMetric: "rir", defaultRestSeconds: 90 };
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -17,28 +20,31 @@ export type AppState = {
   activeSession: ActiveSession | null;
   coachingProfile: CoachingProfile;
   coachingDecisions: CoachingDecision[];
+  settings: AppSettings;
 };
 
-type StoredAppStateV1 = Omit<AppState, "activeSession" | "coachingProfile" | "coachingDecisions"> & { schemaVersion: 1 };
-type StoredAppStateV2 = Omit<AppState, "coachingProfile" | "coachingDecisions"> & { schemaVersion: 2 };
-export type StoredAppStateV3 = Omit<AppState, "coachingDecisions"> & { schemaVersion: 3 };
-export type StoredAppStateV4 = Omit<AppState, "coachingDecisions"> & { schemaVersion: 4 };
-export type StoredAppStateV5 = AppState & { schemaVersion: 5 };
-export type StoredAppStateV6 = AppState & { schemaVersion: 6 };
-export type StoredAppStateV7 = AppState & { schemaVersion: 7 };
-export type StoredAppStateV8 = AppState & { schemaVersion: 8 };
+type LegacyAppState = Omit<AppState, "settings">;
+type StoredAppStateV1 = Omit<LegacyAppState, "activeSession" | "coachingProfile" | "coachingDecisions"> & { schemaVersion: 1 };
+type StoredAppStateV2 = Omit<LegacyAppState, "coachingProfile" | "coachingDecisions"> & { schemaVersion: 2 };
+export type StoredAppStateV3 = Omit<LegacyAppState, "coachingDecisions"> & { schemaVersion: 3 };
+export type StoredAppStateV4 = Omit<LegacyAppState, "coachingDecisions"> & { schemaVersion: 4 };
+export type StoredAppStateV5 = LegacyAppState & { schemaVersion: 5 };
+export type StoredAppStateV6 = LegacyAppState & { schemaVersion: 6 };
+export type StoredAppStateV7 = LegacyAppState & { schemaVersion: 7 };
+export type StoredAppStateV8 = LegacyAppState & { schemaVersion: 8 };
+export type StoredAppStateV9 = AppState & { schemaVersion: 9 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
   switch (value.schemaVersion) {
     case 1:
-      return isStoredAppStateV1(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [] } : null;
+      return isStoredAppStateV1(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } } : null;
     case 2:
-      return isStoredAppStateV2(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [] } : null;
+      return isStoredAppStateV2(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } } : null;
     case 3:
-      return isStoredAppStateV3(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: [] } : null;
+      return isStoredAppStateV3(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } } : null;
     case 4:
-      return isStoredAppStateV4(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: [] } : null;
+      return isStoredAppStateV4(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } } : null;
     case 5:
       return isStoredAppStateV5(value) ? {
         workouts: personalBaselineWorkouts(),
@@ -47,6 +53,7 @@ export function migrateStoredState(value: unknown): AppState | null {
         activeSession: null,
         coachingProfile: value.coachingProfile,
         coachingDecisions: [],
+        settings: { ...DEFAULT_APP_SETTINGS },
       } : null;
     case 6:
       return isStoredAppStateV6(value) ? {
@@ -56,11 +63,14 @@ export function migrateStoredState(value: unknown): AppState | null {
         activeSession: null,
         coachingProfile: value.coachingProfile,
         coachingDecisions: [],
+        settings: { ...DEFAULT_APP_SETTINGS },
       } : null;
     case 7:
-      return isStoredAppStateV7(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
+      return isStoredAppStateV7(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: { ...DEFAULT_APP_SETTINGS } } : null;
     case 8:
-      return isStoredAppStateV8(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions } : null;
+      return isStoredAppStateV8(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: { ...DEFAULT_APP_SETTINGS } } : null;
+    case 9:
+      return isStoredAppStateV9(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings } : null;
     default:
       console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -164,6 +174,21 @@ function isStoredAppStateV8(value: Record<string, unknown>): value is StoredAppS
     && value.coachingDecisions.every(isCoachingDecision);
 }
 
+function isStoredAppStateV9(value: Record<string, unknown>): value is StoredAppStateV9 {
+  return value.schemaVersion === 9
+    && isStoredAppStateV8({ ...value, schemaVersion: 8 })
+    && isAppSettings(value.settings);
+}
+
+function isAppSettings(value: unknown): value is AppSettings {
+  return isRecord(value)
+    && (value.weightUnit === "kg" || value.weightUnit === "lb")
+    && (value.effortMetric === "rir" || value.effortMetric === "rpe")
+    && Number.isInteger(value.defaultRestSeconds)
+    && (value.defaultRestSeconds as number) >= 15
+    && (value.defaultRestSeconds as number) <= 600;
+}
+
 function isCoachingDecision(value: unknown): value is CoachingDecision {
   return isRecord(value)
     && typeof value.recommendationId === "string"
@@ -221,8 +246,15 @@ function isExercise(value: unknown): value is Exercise {
     && isFiniteNumber(value.lastReps)
     && (value.selectionReason === undefined || typeof value.selectionReason === "string")
     && (value.loadingType === undefined || value.loadingType === "pin-loaded" || value.loadingType === "plate-loaded")
+    && (value.loadIncrement === undefined || (isFiniteNumber(value.loadIncrement) && value.loadIncrement > 0))
+    && (value.restSeconds === undefined || (Number.isInteger(value.restSeconds) && (value.restSeconds as number) >= 15 && (value.restSeconds as number) <= 600))
     && Array.isArray(value.sets)
-    && value.sets.every((set) => isRecord(set) && isFiniteNumber(set.weight) && isFiniteNumber(set.reps) && typeof set.completed === "boolean");
+    && value.sets.every((set) => isRecord(set)
+      && isFiniteNumber(set.weight)
+      && isFiniteNumber(set.reps)
+      && typeof set.completed === "boolean"
+      && (set.rir === undefined || (Number.isInteger(set.rir) && (set.rir as number) >= 0 && (set.rir as number) <= 5))
+      && (set.rpe === undefined || (isFiniteNumber(set.rpe) && set.rpe >= 5 && set.rpe <= 10)));
 }
 
 function isActiveSession(value: unknown): value is ActiveSession {

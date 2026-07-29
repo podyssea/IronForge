@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, progression, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession } from "./training";
+import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession, storedWeight, updateExercisePrescription } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -53,6 +53,13 @@ describe("set validation and session calculations", () => {
     expect(setValidationError({ weight: -1, reps: 8, completed: false })).toMatch(/Weight/);
     expect(setValidationError({ weight: 10, reps: 0, completed: false })).toMatch(/rep/);
     expect(setValidationError({ weight: 10, reps: 8.5, completed: false })).toMatch(/rep/);
+  });
+
+  it("validates optional working-set effort", () => {
+    expect(setValidationError({ weight: 80, reps: 8, completed: true, rir: 2 })).toBeNull();
+    expect(setValidationError({ weight: 80, reps: 8, completed: true, rir: 6 })).toMatch(/RIR/);
+    expect(setValidationError({ weight: 80, reps: 8, completed: true, rpe: 9.5 })).toBeNull();
+    expect(setValidationError({ weight: 80, reps: 8, completed: true, rpe: 4 })).toMatch(/RPE/);
   });
 
   it("counts only valid completed sets in volume", () => {
@@ -121,6 +128,37 @@ describe("warm-up and working sets", () => {
     workout.exercises[0].loadingType = "pin-loaded";
     const exercise = startActiveSession(workout).exercises[0];
     expect(exercise.sets.map((set) => set.weight)).toEqual([45, 60, 85, 85]);
+  });
+
+  it("uses a custom exercise increment for warm-ups", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].lastWeight = 83;
+    workout.exercises[0].loadIncrement = 2;
+    expect(startActiveSession(workout).exercises[0].sets.map((set) => set.weight)).toEqual([42, 58, 84, 84]);
+  });
+});
+
+describe("units and workout editing", () => {
+  it("converts display units without changing stored kilograms", () => {
+    expect(displayWeight(100, "lb")).toBe(220.5);
+    expect(storedWeight(220.5, "lb")).toBeCloseTo(100, 1);
+  });
+
+  it("updates prescriptions while retaining two working sets", () => {
+    const exercise = updateExercisePrescription(initialFourDaySplit()[0].exercises[0], { targetSets: 5, repRange: [5, 7], loadIncrement: 2, restSeconds: 150 });
+    expect(exercise.sets).toHaveLength(5);
+    expect(exercise.repRange).toEqual([5, 7]);
+    expect(exercise.loadIncrement).toBe(2);
+    expect(exercise.restSeconds).toBe(150);
+  });
+
+  it("creates and reorders custom exercises", () => {
+    const workout = initialFourDaySplit()[0];
+    const custom = createCustomExercise("Cable Y Raise", new Date("2026-01-01T00:00:00.000Z"));
+    const withCustom = { ...workout, exercises: [...workout.exercises, custom] };
+    const moved = moveWorkoutExercise(withCustom, custom.id, -1);
+    expect(custom.name).toBe("Cable Y Raise");
+    expect(moved.exercises.at(-2)?.id).toBe(custom.id);
   });
 });
 

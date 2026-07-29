@@ -1,37 +1,38 @@
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { compareSessionExercises, exerciseVolume, formatDuration } from "../domain/sessionJournal";
-import { Exercise, isWorkingSet, progression, SessionRecord } from "../domain/training";
+import { displayWeight, Exercise, isWorkingSet, progression, SessionRecord, WeightUnit, weightUnitLabel } from "../domain/training";
 
 type HistoryScreenProps = {
   records: SessionRecord[];
   onUpdateNotes: (recordId: string, notes: string) => void;
   onDelete: (recordId: string) => void;
+  weightUnit: WeightUnit;
 };
 
-export function HistoryScreen({ records, onUpdateNotes, onDelete }: HistoryScreenProps) {
+export function HistoryScreen({ records, onUpdateNotes, onDelete, weightUnit }: HistoryScreenProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = records.find((record) => record.id === selectedId);
-  if (selected) return <SessionDetail record={selected} records={records} onBack={() => setSelectedId(null)} onNotes={(notes) => onUpdateNotes(selected.id, notes)} onDelete={() => Alert.alert("Delete workout?", "This removes the session from your journal and totals. Current program loads will not be changed.", [{ text: "Keep session", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => { onDelete(selected.id); setSelectedId(null); } }])} />;
+  if (selected) return <SessionDetail record={selected} records={records} weightUnit={weightUnit} onBack={() => setSelectedId(null)} onNotes={(notes) => onUpdateNotes(selected.id, notes)} onDelete={() => Alert.alert("Delete workout?", "This removes the session from your journal and totals. Current program loads will not be changed.", [{ text: "Keep session", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => { onDelete(selected.id); setSelectedId(null); } }])} />;
 
   const latestExercises = new Map<string, Exercise>();
   records.forEach((record) => record.exercises.forEach((exercise) => { if (!latestExercises.has(exercise.id)) latestExercises.set(exercise.id, exercise); }));
   return <><Text style={styles.kicker}>WORKOUT JOURNAL</Text><Text style={styles.title}>History</Text>
     {records.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No workouts saved yet</Text><Text style={styles.emptyText}>Finish a workout and it will appear here with every set, your notes, and performance changes.</Text></View> : <>
-      <View style={styles.historyStat}><Text style={styles.historyNumber}>{records.length}</Text><Text style={styles.historyLabel}>WORKOUTS COMPLETED</Text><Text style={styles.historyVolume}>{records.reduce((sum, record) => sum + record.volume, 0).toLocaleString()} kg total volume</Text></View>
-      <Text style={styles.sectionLabel}>RECENT SESSIONS</Text>{records.map((record) => <Pressable key={record.id} onPress={() => setSelectedId(record.id)} style={styles.historyCard}><View style={styles.cardCopy}><Text style={styles.historyTitle}>{record.workoutTitle.split(" · ").pop()}</Text><Text style={styles.historyDate}>{formatDate(record.completedAt)} · {record.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).length} exercises</Text>{record.notes ? <Text numberOfLines={1} style={styles.notePreview}>{record.notes}</Text> : null}</View><View style={styles.cardRight}><Text style={styles.cardVolume}>{record.volume.toLocaleString()}<Text style={styles.cardUnit}> kg</Text></Text><Text style={styles.open}>OPEN →</Text></View></Pressable>)}</>}
-    {latestExercises.size > 0 && <><Text style={styles.sectionLabel}>LATEST PERFORMANCE</Text>{Array.from(latestExercises.values()).map((exercise) => <View key={exercise.id} style={styles.performanceCard}><Text style={styles.performanceName}>{exercise.name}</Text><Text style={styles.performanceValue}>{exercise.lastWeight} kg × {exercise.lastReps}</Text><Text style={styles.performanceTip}>{progression(exercise)}</Text></View>)}</>}
+      <View style={styles.historyStat}><Text style={styles.historyNumber}>{records.length}</Text><Text style={styles.historyLabel}>WORKOUTS COMPLETED</Text><Text style={styles.historyVolume}>{displayWeight(records.reduce((sum, record) => sum + record.volume, 0), weightUnit).toLocaleString()} {weightUnitLabel(weightUnit)} total volume</Text></View>
+      <Text style={styles.sectionLabel}>RECENT SESSIONS</Text>{records.map((record) => <Pressable key={record.id} onPress={() => setSelectedId(record.id)} style={styles.historyCard}><View style={styles.cardCopy}><Text style={styles.historyTitle}>{record.workoutTitle.split(" · ").pop()}</Text><Text style={styles.historyDate}>{formatDate(record.completedAt)} · {record.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).length} exercises</Text>{record.notes ? <Text numberOfLines={1} style={styles.notePreview}>{record.notes}</Text> : null}</View><View style={styles.cardRight}><Text style={styles.cardVolume}>{displayWeight(record.volume, weightUnit).toLocaleString()}<Text style={styles.cardUnit}> {weightUnitLabel(weightUnit)}</Text></Text><Text style={styles.open}>OPEN →</Text></View></Pressable>)}</>}
+    {latestExercises.size > 0 && <><Text style={styles.sectionLabel}>LATEST PERFORMANCE</Text>{Array.from(latestExercises.values()).map((exercise) => <View key={exercise.id} style={styles.performanceCard}><Text style={styles.performanceName}>{exercise.name}</Text><Text style={styles.performanceValue}>{displayWeight(exercise.lastWeight, weightUnit)} {weightUnitLabel(weightUnit)} × {exercise.lastReps}</Text><Text style={styles.performanceTip}>{progression(exercise, weightUnit)}</Text></View>)}</>}
   </>;
 }
 
-function SessionDetail({ record, records, onBack, onNotes, onDelete }: { record: SessionRecord; records: SessionRecord[]; onBack: () => void; onNotes: (notes: string) => void; onDelete: () => void }) {
+function SessionDetail({ record, records, weightUnit, onBack, onNotes, onDelete }: { record: SessionRecord; records: SessionRecord[]; weightUnit: WeightUnit; onBack: () => void; onNotes: (notes: string) => void; onDelete: () => void }) {
   const comparisons = compareSessionExercises(record, records);
   const completedSets = record.exercises.reduce((total, exercise) => total + exercise.sets.filter((set) => set.completed).length, 0);
   const totalSets = record.exercises.reduce((total, exercise) => total + exercise.sets.length, 0);
   return <><Pressable onPress={onBack} style={styles.back}><Text style={styles.backText}>← BACK TO HISTORY</Text></Pressable><Text style={styles.kicker}>JOURNAL ENTRY</Text><Text style={styles.title}>{record.workoutTitle.split(" · ").pop()}</Text><Text style={styles.detailDate}>{formatDate(record.completedAt)} · {record.startedAt ? `${formatTime(record.startedAt)}–${formatTime(record.completedAt)}` : formatTime(record.completedAt)}</Text>
-    <View style={styles.detailStats}><Stat value={`${completedSets}/${totalSets}`} label="SETS" /><Stat value={`${record.volume.toLocaleString()} kg`} label="VOLUME" /><Stat value={formatDuration(record.durationSeconds)} label="DURATION" /></View>
+    <View style={styles.detailStats}><Stat value={`${completedSets}/${totalSets}`} label="SETS" /><Stat value={`${displayWeight(record.volume, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}`} label="VOLUME" /><Stat value={formatDuration(record.durationSeconds)} label="DURATION" /></View>
     <View style={styles.notes}><Text style={styles.notesLabel}>SESSION NOTES</Text><TextInput value={record.notes ?? ""} onChangeText={onNotes} placeholder="Add notes about this workout" placeholderTextColor="#687067" multiline style={styles.notesInput} /></View>
-    <Text style={styles.sectionLabel}>EXERCISES & SETS</Text>{record.exercises.map((exercise) => { const comparison = comparisons.get(exercise.id); return <View key={exercise.id} style={styles.exerciseCard}><View style={styles.exerciseTop}><View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseVolume}>{exerciseVolume(exercise).toLocaleString()} kg exercise volume</Text></View><Text style={styles.exerciseCount}>{exercise.sets.filter((set) => set.completed).length}/{exercise.sets.length}</Text></View>{exercise.sets.map((set, index) => <View key={index} style={[styles.setRow, !set.completed && styles.skippedRow]}><Text style={[styles.setIndex, isWorkingSet(exercise, index) && styles.workingSet]}>SET {index + 1} · {isWorkingSet(exercise, index) ? "WORK" : "WARM"}</Text><Text style={styles.setValue}>{set.weight} kg × {set.reps}</Text><Text style={[styles.setStatus, !set.completed && styles.skipped]}>{set.completed ? `${(set.weight * set.reps).toLocaleString()} kg` : "SKIPPED"}</Text></View>)}<Text style={styles.comparison}>{comparison?.previousFound ? comparisonText(comparison.weightChange, comparison.repChange, comparison.volumeChange) : "First recorded performance for this exercise"}</Text></View>; })}
+    <Text style={styles.sectionLabel}>EXERCISES & SETS</Text>{record.exercises.map((exercise) => { const comparison = comparisons.get(exercise.id); return <View key={exercise.id} style={styles.exerciseCard}><View style={styles.exerciseTop}><View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseVolume}>{displayWeight(exerciseVolume(exercise), weightUnit).toLocaleString()} {weightUnitLabel(weightUnit)} exercise volume</Text></View><Text style={styles.exerciseCount}>{exercise.sets.filter((set) => set.completed).length}/{exercise.sets.length}</Text></View>{exercise.sets.map((set, index) => <View key={index} style={[styles.setRow, !set.completed && styles.skippedRow]}><Text style={[styles.setIndex, isWorkingSet(exercise, index) && styles.workingSet]}>SET {index + 1} · {isWorkingSet(exercise, index) ? "WORK" : "WARM"}</Text><Text style={styles.setValue}>{displayWeight(set.weight, weightUnit)} {weightUnitLabel(weightUnit)} × {set.reps}{set.rir !== undefined ? ` · RIR ${set.rir}` : set.rpe !== undefined ? ` · RPE ${set.rpe}` : ""}</Text><Text style={[styles.setStatus, !set.completed && styles.skipped]}>{set.completed ? `${displayWeight(set.weight * set.reps, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}` : "SKIPPED"}</Text></View>)}<Text style={styles.comparison}>{comparison?.previousFound ? comparisonText(comparison.weightChange, comparison.repChange, comparison.volumeChange, weightUnit) : "First recorded performance for this exercise"}</Text></View>; })}
     <Pressable onPress={onDelete} style={styles.delete}><Text style={styles.deleteText}>DELETE JOURNAL ENTRY</Text></Pressable>
   </>;
 }
@@ -40,8 +41,8 @@ function Stat({ value, label }: { value: string; label: string }) {
   return <View style={styles.stat}><Text style={styles.statValue}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View>;
 }
 
-function comparisonText(weight: number, reps: number, volume: number): string {
-  const parts = [`${signed(weight)} kg`, `${signed(reps)} reps`, `${signed(volume)} kg volume`];
+function comparisonText(weight: number, reps: number, volume: number, unit: WeightUnit): string {
+  const parts = [`${signed(displayWeight(weight, unit))} ${weightUnitLabel(unit)}`, `${signed(reps)} reps`, `${signed(displayWeight(volume, unit))} ${weightUnitLabel(unit)} volume`];
   return `Vs previous: ${parts.join(" · ")}`;
 }
 

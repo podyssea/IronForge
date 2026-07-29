@@ -9,6 +9,12 @@ function performance(reps: number, completedSets = 4, date = "2026-01-02T10:00:0
   return completeActiveSession(session, new Date(new Date(date).getTime() + 3_600_000));
 }
 
+function highEffortPerformance(date: string) {
+  const record = performance(8, 4, date);
+  record.exercises[0].sets = record.exercises[0].sets.map((set, index) => index >= 2 ? { ...set, rir: 0 } : set);
+  return record;
+}
+
 describe("adaptive coaching", () => {
   it("holds after a single performance while building a trend", () => {
     const workout = initialFourDaySplit()[0];
@@ -31,6 +37,14 @@ describe("adaptive coaching", () => {
     const recommendation = buildWorkoutRecommendations(workout, records, [])[0];
     expect(recommendation.action).toBe("reduce");
     expect(recommendation.suggestedWeight).toBe(31.5);
+  });
+
+  it("holds a top-range load when working sets reached maximum effort", () => {
+    const workout = initialFourDaySplit()[0];
+    const records = [highEffortPerformance("2026-01-03T10:00:00.000Z"), highEffortPerformance("2026-01-02T10:00:00.000Z")];
+    const recommendation = buildWorkoutRecommendations(workout, records, [])[0];
+    expect(recommendation.action).toBe("hold");
+    expect(recommendation.reason).toContain("maximum effort");
   });
 
   it("hides recommendations that already have a decision", () => {

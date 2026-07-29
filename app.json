@@ -6,6 +6,9 @@
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-notifications"
+    ],
     "ios": {
       "bundleIdentifier": "com.podyssea.ironforge",
       "supportsTablet": false,
