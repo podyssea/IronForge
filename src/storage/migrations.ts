@@ -222,7 +222,8 @@ function isCoachingProfile(value: unknown): value is CoachingProfile {
     && Array.isArray(value.preferredExerciseIds)
     && value.preferredExerciseIds.every((item) => typeof item === "string")
     && Array.isArray(value.excludedExerciseIds)
-    && value.excludedExerciseIds.every((item) => typeof item === "string");
+    && value.excludedExerciseIds.every((item) => typeof item === "string")
+    && (value.coachingStyle === undefined || value.coachingStyle === "balanced" || value.coachingStyle === "classic-physique");
 }
 
 function isWorkout(value: unknown): value is Workout {

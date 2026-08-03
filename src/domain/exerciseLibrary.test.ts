@@ -4,8 +4,15 @@ import { initialFourDaySplit } from "./training";
 
 describe("exercise library", () => {
   it("contains a broad catalog with unique IDs", () => {
-    expect(EXERCISE_LIBRARY.length).toBeGreaterThanOrEqual(75);
+    expect(EXERCISE_LIBRARY.length).toBeGreaterThanOrEqual(99);
     expect(new Set(EXERCISE_LIBRARY.map((exercise) => exercise.id)).size).toBe(EXERCISE_LIBRARY.length);
+  });
+
+  it("includes advanced Classic Physique metadata and exercise options", () => {
+    const pendulum = getExerciseDefinition("pendulum-squat");
+    expect(pendulum).toMatchObject({ resistanceProfile: "lengthened", trainingRole: "stable-compound", classicPhysiquePriority: 5 });
+    expect(getExerciseDefinition("bayesian-curl")?.intensityTechniques).toContain("drop-set");
+    expect(getExerciseDefinition("machine-high-row")?.primaryMuscles).toContain("upper-back");
   });
 
   it("contains every exercise used by the current program", () => {
