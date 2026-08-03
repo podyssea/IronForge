@@ -64,4 +64,24 @@ describe("adaptive program generator", () => {
     const retained = workouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === "incline-smith");
     expect(retained?.lastWeight).toBe(52.5);
   });
+
+  it("generates distinct Classic Physique splits with physique-priority selections", () => {
+    const profile: CoachingProfile = { ...DEFAULT_COACHING_PROFILE, coachingStyle: "classic-physique", experience: "advanced", sessionMinutes: 75 };
+    const workouts = generateAdaptiveProgram(5, profile, []);
+    expect(workouts.map((workout) => workout.title)).toEqual([
+      "Day 1 · Chest & Back",
+      "Day 2 · Quads & Calves",
+      "Day 3 · Shoulders",
+      "Day 4 · Back & Arms",
+      "Day 5 · Hamstrings & Chest",
+    ]);
+    expect(workouts.every((workout) => workout.focus.includes("Classic Physique"))).toBe(true);
+    expect(workouts.flatMap((workout) => workout.exercises).some((exercise) => (getExerciseDefinition(exercise.id)?.classicPhysiquePriority ?? 0) >= 4)).toBe(true);
+    expect(workouts.flatMap((workout) => workout.exercises).every((exercise) => exercise.selectionReason?.startsWith("Classic Physique:"))).toBe(true);
+  });
+
+  it("keeps balanced generation available when explicitly selected", () => {
+    const profile: CoachingProfile = { ...DEFAULT_COACHING_PROFILE, coachingStyle: "balanced" };
+    expect(generateAdaptiveProgram(4, profile, [])[0].title).toBe("Day 1 · Upper A");
+  });
 });

@@ -3,6 +3,9 @@ export type MuscleGroup = "chest" | "upper-back" | "lats" | "front-delts" | "sid
 export type Equipment = "barbell" | "dumbbell" | "cable" | "machine" | "smith-machine" | "bodyweight" | "resistance-band" | "kettlebell";
 export type TrainingStyle = "strength" | "hypertrophy" | "general-fitness" | "muscular-endurance";
 export type ExperienceLevel = "beginner" | "intermediate" | "advanced";
+export type ResistanceProfile = "lengthened" | "mid-range" | "shortened" | "balanced";
+export type TrainingRole = "heavy-compound" | "stable-compound" | "isolation" | "finisher";
+export type IntensityTechnique = "drop-set" | "rest-pause" | "partials" | "superset" | "top-set-backoff";
 
 export type ExerciseDefinition = {
   id: string;
@@ -17,12 +20,20 @@ export type ExerciseDefinition = {
   unilateral: boolean;
   defaultRepRanges: Record<TrainingStyle, [number, number]>;
   substitutions: string[];
+  resistanceProfile?: ResistanceProfile;
+  trainingRole?: TrainingRole;
+  intensityTechniques?: IntensityTechnique[];
+  classicPhysiquePriority?: number;
 };
 
 type DefinitionOptions = {
   secondary?: MuscleGroup[];
   unilateral?: boolean;
   substitutions?: string[];
+  resistanceProfile?: ResistanceProfile;
+  trainingRole?: TrainingRole;
+  intensityTechniques?: IntensityTechnique[];
+  classicPhysiquePriority?: number;
 };
 
 function defineExercise(id: string, name: string, movementPattern: MovementPattern, primaryMuscles: MuscleGroup[], equipment: Equipment[], difficulty: ExperienceLevel, modality: "compound" | "isolation", options: DefinitionOptions = {}): ExerciseDefinition {
@@ -33,6 +44,10 @@ function defineExercise(id: string, name: string, movementPattern: MovementPatte
     suitableFor: ["strength", "hypertrophy", "general-fitness", "muscular-endurance"],
     defaultRepRanges: modality === "compound" ? { strength: [3, 6], hypertrophy: [6, 12], "general-fitness": [6, 12], "muscular-endurance": [12, 20] } : { strength: [6, 10], hypertrophy: [10, 15], "general-fitness": [10, 15], "muscular-endurance": [15, 25] },
     substitutions: options.substitutions ?? [],
+    resistanceProfile: options.resistanceProfile ?? "balanced",
+    trainingRole: options.trainingRole ?? (modality === "compound" ? "heavy-compound" : "isolation"),
+    intensityTechniques: options.intensityTechniques ?? (modality === "isolation" ? ["drop-set", "superset"] : ["top-set-backoff"]),
+    classicPhysiquePriority: options.classicPhysiquePriority ?? 0,
   };
 }
 
@@ -125,6 +140,31 @@ export const EXERCISE_LIBRARY: ExerciseDefinition[] = [
   defineExercise("pallof-press", "Pallof Press", "core", ["core"], ["cable", "resistance-band"], "beginner", "isolation", { substitutions: ["plank", "dead-bug"] }),
   defineExercise("cable-crunch", "Cable Crunch", "core", ["core"], ["cable"], "beginner", "isolation", { substitutions: ["machine-crunch"] }),
   defineExercise("machine-crunch", "Machine Crunch", "core", ["core"], ["machine"], "beginner", "isolation", { substitutions: ["cable-crunch"] }),
+
+  defineExercise("converging-chest-press", "Converging Chest Press", "horizontal-push", ["chest"], ["machine"], "intermediate", "compound", { secondary: ["front-delts", "triceps"], substitutions: ["machine-chest", "dumbbell-bench"], trainingRole: "stable-compound", resistanceProfile: "balanced", classicPhysiquePriority: 5 }),
+  defineExercise("incline-cable-fly", "Low-to-High Incline Cable Fly", "horizontal-push", ["chest"], ["cable"], "intermediate", "isolation", { substitutions: ["cable-fly", "incline-machine"], resistanceProfile: "shortened", classicPhysiquePriority: 5 }),
+  defineExercise("stretch-push-up", "Deep-Stretch Push-Up", "horizontal-push", ["chest"], ["bodyweight"], "intermediate", "compound", { secondary: ["front-delts", "triceps"], substitutions: ["push-up", "dumbbell-bench"], resistanceProfile: "lengthened", trainingRole: "finisher", intensityTechniques: ["partials", "superset"], classicPhysiquePriority: 3 }),
+  defineExercise("machine-high-row", "Chest-Supported Machine High Row", "horizontal-pull", ["upper-back"], ["machine"], "intermediate", "compound", { secondary: ["lats", "rear-delts", "biceps"], substitutions: ["tbar-row", "machine-row"], trainingRole: "stable-compound", classicPhysiquePriority: 5 }),
+  defineExercise("iliac-pulldown", "Single-Arm Iliac Lat Pulldown", "vertical-pull", ["lats"], ["cable"], "intermediate", "isolation", { secondary: ["biceps"], unilateral: true, substitutions: ["single-arm-pulldown", "pullover"], resistanceProfile: "shortened", classicPhysiquePriority: 5 }),
+  defineExercise("kneeling-pulldown", "Kneeling Neutral-Grip Pulldown", "vertical-pull", ["lats"], ["cable"], "intermediate", "compound", { secondary: ["upper-back", "biceps"], substitutions: ["lat-pulldown", "single-arm-pulldown"], trainingRole: "stable-compound", classicPhysiquePriority: 4 }),
+  defineExercise("kelso-shrug", "Chest-Supported Kelso Shrug", "horizontal-pull", ["upper-back"], ["barbell", "dumbbell", "machine"], "advanced", "isolation", { secondary: ["rear-delts"], substitutions: ["machine-high-row", "tbar-row"], resistanceProfile: "shortened", classicPhysiquePriority: 4 }),
+  defineExercise("cable-y-raise", "Cable Y-Raise", "shoulder-isolation", ["side-delts", "rear-delts"], ["cable"], "intermediate", "isolation", { substitutions: ["lateral-raise", "face-pull"], resistanceProfile: "lengthened", classicPhysiquePriority: 5 }),
+  defineExercise("leaning-lateral-raise", "Leaning Cable Lateral Raise", "shoulder-isolation", ["side-delts"], ["cable"], "intermediate", "isolation", { unilateral: true, substitutions: ["lateral-raise", "machine-lateral-raise"], resistanceProfile: "lengthened", classicPhysiquePriority: 5 }),
+  defineExercise("reverse-pec-deck", "Reverse Pec Deck", "shoulder-isolation", ["rear-delts"], ["machine"], "beginner", "isolation", { secondary: ["upper-back"], substitutions: ["rear-delt", "face-pull"], resistanceProfile: "shortened", classicPhysiquePriority: 5 }),
+  defineExercise("pendulum-squat", "Pendulum Squat", "squat", ["quadriceps"], ["machine"], "advanced", "compound", { secondary: ["glutes", "adductors"], substitutions: ["hack-squat", "leg-press"], resistanceProfile: "lengthened", trainingRole: "stable-compound", classicPhysiquePriority: 5 }),
+  defineExercise("belt-squat", "Belt Squat", "squat", ["quadriceps", "glutes"], ["machine"], "intermediate", "compound", { substitutions: ["hack-squat", "goblet-squat"], resistanceProfile: "lengthened", trainingRole: "stable-compound", classicPhysiquePriority: 4 }),
+  defineExercise("sissy-squat", "Assisted Sissy Squat", "squat", ["quadriceps"], ["bodyweight", "machine"], "advanced", "isolation", { substitutions: ["leg-extension", "split-squat"], resistanceProfile: "lengthened", trainingRole: "finisher", intensityTechniques: ["partials", "superset"], classicPhysiquePriority: 4 }),
+  defineExercise("single-leg-extension", "Single-Leg Extension", "squat", ["quadriceps"], ["machine"], "intermediate", "isolation", { unilateral: true, substitutions: ["leg-extension", "sissy-squat"], resistanceProfile: "shortened", classicPhysiquePriority: 4 }),
+  defineExercise("stiff-leg-deadlift", "Stiff-Leg Deadlift", "hinge", ["hamstrings", "glutes"], ["barbell", "dumbbell"], "advanced", "compound", { secondary: ["core"], substitutions: ["rdl", "dumbbell-rdl"], resistanceProfile: "lengthened", classicPhysiquePriority: 5 }),
+  defineExercise("glute-ham-raise", "Glute-Ham Raise", "knee-flexion", ["hamstrings", "glutes"], ["machine", "bodyweight"], "advanced", "compound", { substitutions: ["nordic-curl", "lying-curl"], resistanceProfile: "lengthened", classicPhysiquePriority: 5 }),
+  defineExercise("nordic-curl", "Nordic Hamstring Curl", "knee-flexion", ["hamstrings"], ["bodyweight"], "advanced", "compound", { substitutions: ["glute-ham-raise", "lying-curl"], resistanceProfile: "lengthened", classicPhysiquePriority: 4 }),
+  defineExercise("back-extension-45", "45-Degree Back Extension", "hinge", ["hamstrings", "glutes"], ["bodyweight", "dumbbell"], "intermediate", "compound", { secondary: ["core"], substitutions: ["dumbbell-rdl", "glute-bridge"], resistanceProfile: "lengthened", trainingRole: "finisher", classicPhysiquePriority: 4 }),
+  defineExercise("bayesian-curl", "Bayesian Cable Curl", "elbow-flexion", ["biceps"], ["cable"], "intermediate", "isolation", { unilateral: true, substitutions: ["cable-curl", "dumbbell-curl"], resistanceProfile: "lengthened", classicPhysiquePriority: 5 }),
+  defineExercise("spider-curl", "Spider Curl", "elbow-flexion", ["biceps"], ["barbell", "dumbbell"], "intermediate", "isolation", { substitutions: ["preacher-curl", "dumbbell-curl"], resistanceProfile: "shortened", classicPhysiquePriority: 4 }),
+  defineExercise("cross-body-extension", "Cross-Body Cable Triceps Extension", "elbow-extension", ["triceps"], ["cable"], "intermediate", "isolation", { unilateral: true, substitutions: ["pushdown", "cable-overhead-extension"], resistanceProfile: "shortened", classicPhysiquePriority: 5 }),
+  defineExercise("jm-press", "Smith Machine JM Press", "elbow-extension", ["triceps"], ["smith-machine"], "advanced", "compound", { secondary: ["chest", "front-delts"], substitutions: ["close-grip-bench", "pushdown"], resistanceProfile: "lengthened", classicPhysiquePriority: 4 }),
+  defineExercise("donkey-calf", "Donkey Calf Raise", "calf-raise", ["calves"], ["machine", "bodyweight"], "intermediate", "isolation", { substitutions: ["standing-calf", "seated-calf"], resistanceProfile: "lengthened", classicPhysiquePriority: 4 }),
+  defineExercise("tibialis-raise", "Tibialis Raise", "calf-raise", ["calves"], ["machine", "bodyweight"], "beginner", "isolation", { substitutions: ["standing-calf", "single-leg-calf"], trainingRole: "finisher", classicPhysiquePriority: 3 }),
 ];
 
 const exerciseById = new Map(EXERCISE_LIBRARY.map((exercise) => [exercise.id, exercise]));

@@ -98,6 +98,13 @@ describe("storage migrations", () => {
     expect(migrated?.workouts[0].exercises[0].sets[2].rir).toBe(2);
   });
 
+  it("persists the optional Classic Physique coaching style", () => {
+    const workouts = initialFourDaySplit();
+    const coachingProfile = { ...DEFAULT_COACHING_PROFILE, coachingStyle: "classic-physique" as const };
+    const migrated = migrateStoredState({ schemaVersion: 9, workouts, records: [], program, activeSession: null, coachingProfile, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS });
+    expect(migrated?.coachingProfile.coachingStyle).toBe("classic-physique");
+  });
+
   it("rejects malformed state", () => {
     expect(migrateStoredState({ schemaVersion: 7, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] })).toBeNull();
     expect(migrateStoredState({ schemaVersion: 1, workouts: initialFourDaySplit(), records: "invalid", program })).toBeNull();

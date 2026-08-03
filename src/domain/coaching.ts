@@ -8,6 +8,7 @@ export type CoachingProfile = {
   availableEquipment: Equipment[];
   preferredExerciseIds: string[];
   excludedExerciseIds: string[];
+  coachingStyle?: "balanced" | "classic-physique";
 };
 
 export const DEFAULT_COACHING_PROFILE: CoachingProfile = {
@@ -17,6 +18,7 @@ export const DEFAULT_COACHING_PROFILE: CoachingProfile = {
   availableEquipment: ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"],
   preferredExerciseIds: [],
   excludedExerciseIds: [],
+  coachingStyle: "classic-physique",
 };
 
 export type CoachingRecommendation = {
