@@ -8,12 +8,13 @@ type HistoryScreenProps = {
   onUpdateNotes: (recordId: string, notes: string) => void;
   onDelete: (recordId: string) => void;
   weightUnit: WeightUnit;
+  onRepeat: (record: SessionRecord) => void;
 };
 
-export function HistoryScreen({ records, onUpdateNotes, onDelete, weightUnit }: HistoryScreenProps) {
+export function HistoryScreen({ records, onUpdateNotes, onDelete, weightUnit, onRepeat }: HistoryScreenProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = records.find((record) => record.id === selectedId);
-  if (selected) return <SessionDetail record={selected} records={records} weightUnit={weightUnit} onBack={() => setSelectedId(null)} onNotes={(notes) => onUpdateNotes(selected.id, notes)} onDelete={() => Alert.alert("Delete workout?", "This removes the session from your journal and totals. Current program loads will not be changed.", [{ text: "Keep session", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => { onDelete(selected.id); setSelectedId(null); } }])} />;
+  if (selected) return <SessionDetail record={selected} records={records} weightUnit={weightUnit} onBack={() => setSelectedId(null)} onRepeat={() => onRepeat(selected)} onNotes={(notes) => onUpdateNotes(selected.id, notes)} onDelete={() => Alert.alert("Delete workout?", "This removes the session from your journal and totals. Current program loads will not be changed.", [{ text: "Keep session", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => { onDelete(selected.id); setSelectedId(null); } }])} />;
 
   const latestExercises = new Map<string, Exercise>();
   records.forEach((record) => record.exercises.forEach((exercise) => { if (!latestExercises.has(exercise.id)) latestExercises.set(exercise.id, exercise); }));
@@ -25,12 +26,13 @@ export function HistoryScreen({ records, onUpdateNotes, onDelete, weightUnit }: 
   </>;
 }
 
-function SessionDetail({ record, records, weightUnit, onBack, onNotes, onDelete }: { record: SessionRecord; records: SessionRecord[]; weightUnit: WeightUnit; onBack: () => void; onNotes: (notes: string) => void; onDelete: () => void }) {
+function SessionDetail({ record, records, weightUnit, onBack, onRepeat, onNotes, onDelete }: { record: SessionRecord; records: SessionRecord[]; weightUnit: WeightUnit; onBack: () => void; onRepeat: () => void; onNotes: (notes: string) => void; onDelete: () => void }) {
   const comparisons = compareSessionExercises(record, records);
   const completedSets = record.exercises.reduce((total, exercise) => total + exercise.sets.filter((set) => set.completed).length, 0);
   const totalSets = record.exercises.reduce((total, exercise) => total + exercise.sets.length, 0);
   return <><Pressable onPress={onBack} style={styles.back}><Text style={styles.backText}>← BACK TO HISTORY</Text></Pressable><Text style={styles.kicker}>JOURNAL ENTRY</Text><Text style={styles.title}>{record.workoutTitle.split(" · ").pop()}</Text><Text style={styles.detailDate}>{formatDate(record.completedAt)} · {record.startedAt ? `${formatTime(record.startedAt)}–${formatTime(record.completedAt)}` : formatTime(record.completedAt)}</Text>
     <View style={styles.detailStats}><Stat value={`${completedSets}/${totalSets}`} label="SETS" /><Stat value={`${displayWeight(record.volume, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}`} label="VOLUME" /><Stat value={formatDuration(record.durationSeconds)} label="DURATION" /></View>
+    <Pressable onPress={onRepeat} style={styles.repeat}><Text style={styles.repeatText}>↻ REPEAT THIS WORKOUT</Text></Pressable>
     <View style={styles.notes}><Text style={styles.notesLabel}>SESSION NOTES</Text><TextInput value={record.notes ?? ""} onChangeText={onNotes} placeholder="Add notes about this workout" placeholderTextColor="#687067" multiline style={styles.notesInput} /></View>
     <Text style={styles.sectionLabel}>EXERCISES & SETS</Text>{record.exercises.map((exercise) => { const comparison = comparisons.get(exercise.id); return <View key={exercise.id} style={styles.exerciseCard}><View style={styles.exerciseTop}><View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseVolume}>{displayWeight(exerciseVolume(exercise), weightUnit).toLocaleString()} {weightUnitLabel(weightUnit)} exercise volume</Text></View><Text style={styles.exerciseCount}>{exercise.sets.filter((set) => set.completed).length}/{exercise.sets.length}</Text></View>{exercise.sets.map((set, index) => <View key={index} style={[styles.setRow, !set.completed && styles.skippedRow]}><Text style={[styles.setIndex, isWorkingSet(exercise, index) && styles.workingSet]}>SET {index + 1} · {isWorkingSet(exercise, index) ? "WORK" : "WARM"}</Text><Text style={styles.setValue}>{displayWeight(set.weight, weightUnit)} {weightUnitLabel(weightUnit)} × {set.reps}{set.rir !== undefined ? ` · RIR ${set.rir}` : set.rpe !== undefined ? ` · RPE ${set.rpe}` : ""}</Text><Text style={[styles.setStatus, !set.completed && styles.skipped]}>{set.completed ? `${displayWeight(set.weight * set.reps, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}` : "SKIPPED"}</Text></View>)}<Text style={styles.comparison}>{comparison?.previousFound ? comparisonText(comparison.weightChange, comparison.repChange, comparison.volumeChange, weightUnit) : "First recorded performance for this exercise"}</Text></View>; })}
     <Pressable onPress={onDelete} style={styles.delete}><Text style={styles.deleteText}>DELETE JOURNAL ENTRY</Text></Pressable>
@@ -63,4 +65,5 @@ const styles = StyleSheet.create({
   exerciseCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, marginTop: 9 }, exerciseTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 9 }, exerciseName: { color: "#eff2ed", fontSize: 15, fontWeight: "800" }, exerciseVolume: { color: "#899188", fontSize: 9, marginTop: 4 }, exerciseCount: { color: "#d8ff38", fontSize: 14, fontWeight: "900" },
   setRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: "#2b312b", minHeight: 39 }, skippedRow: { opacity: .48 }, setIndex: { color: "#8e978c", fontSize: 7, fontWeight: "900", width: "27%" }, workingSet: { color: "#d8ff38" }, setValue: { color: "#e5e9e2", fontSize: 12, fontWeight: "700", width: "40%" }, setStatus: { color: "#b9c99b", fontSize: 9, fontWeight: "800", flex: 1, textAlign: "right" }, skipped: { color: "#9b7770" }, comparison: { color: "#b9c99b", fontSize: 9, lineHeight: 14, marginTop: 10 },
   delete: { height: 45, borderRadius: 8, borderWidth: 1, borderColor: "#8b4e44", alignItems: "center", justifyContent: "center", marginTop: 24 }, deleteText: { color: "#e28b7d", fontSize: 9, fontWeight: "900", letterSpacing: .8 },
+  repeat: { height: 48, borderRadius: 8, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center", marginTop: 12 }, repeatText: { color: "#15190f", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
 });
