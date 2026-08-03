@@ -212,6 +212,45 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
   };
 }
 
+export function repeatSessionFromRecord(record: SessionRecord, records: SessionRecord[], now = new Date(), currentWorkouts: Workout[] = []): ActiveSession {
+  return {
+    id: String(now.getTime()),
+    workoutId: record.sourceWorkoutId ?? `repeat-${record.id}`,
+    workoutTitle: record.workoutTitle,
+    focus: "Repeated from workout history",
+    startedAt: now.toISOString(),
+    notes: "",
+    exercises: record.exercises.map((recordedExercise) => {
+      const latest = latestPerformedExercise(records, recordedExercise.id) ?? recordedExercise;
+      const current = currentWorkouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === recordedExercise.id);
+      const best = bestCompletedWorkingSet(latest);
+      const workingWeight = best?.weight ?? latest.lastWeight ?? recordedExercise.lastWeight;
+      const lastReps = best?.reps ?? latest.lastReps ?? recordedExercise.lastReps;
+      return applyWarmupLoads({
+        ...recordedExercise,
+        loadingType: current?.loadingType ?? latest.loadingType ?? recordedExercise.loadingType,
+        loadIncrement: current?.loadIncrement ?? latest.loadIncrement ?? recordedExercise.loadIncrement,
+        restSeconds: current?.restSeconds ?? latest.restSeconds ?? recordedExercise.restSeconds,
+        lastWeight: workingWeight,
+        lastReps,
+        sets: Array.from({ length: recordedExercise.sets.length }, (_, index) => ({
+          weight: workingWeight,
+          reps: recordedExercise.sets[index]?.reps || recordedExercise.repRange[0],
+          completed: false,
+        })),
+      }, workingWeight);
+    }),
+  };
+}
+
+function latestPerformedExercise(records: SessionRecord[], exerciseId: string): Exercise | undefined {
+  return records
+    .filter((item) => item.exercises.some((exercise) => exercise.id === exerciseId))
+    .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+    .map((item) => item.exercises.find((exercise) => exercise.id === exerciseId))
+    .find((exercise): exercise is Exercise => Boolean(exercise));
+}
+
 export function applySessionPerformance(workouts: Workout[], session: ActiveSession): Workout[] {
   return workouts.map((workout) => workout.id !== session.workoutId ? workout : {
     ...workout,

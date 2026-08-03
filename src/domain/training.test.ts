@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession, storedWeight, updateExercisePrescription } from "./training";
+import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, repeatSessionFromRecord, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession, storedWeight, updateExercisePrescription } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -104,6 +104,35 @@ describe("active session lifecycle", () => {
     expect(updated[0].exercises[0].lastWeight).toBe(45);
     expect(updated[0].exercises[1].lastWeight).toBe(workouts[0].exercises[1].lastWeight);
     expect(updated[1]).toBe(workouts[1]);
+  });
+});
+
+describe("repeat workout", () => {
+  it("recreates a historical workout with the latest load for every exercise", () => {
+    const workout = initialFourDaySplit()[0];
+    const originalSession = startActiveSession(workout, new Date("2026-01-01T10:00:00.000Z"));
+    originalSession.exercises.forEach((exercise) => { exercise.sets = exercise.sets.map((set) => ({ ...set, completed: true })); });
+    const original = completeActiveSession(originalSession, new Date("2026-01-01T11:00:00.000Z"));
+    const newerSession = startActiveSession(workout, new Date("2026-01-08T10:00:00.000Z"));
+    newerSession.exercises[0].sets = newerSession.exercises[0].sets.map((set, index) => ({ ...set, weight: index >= 2 ? 50 : set.weight, reps: 8, completed: true }));
+    newerSession.exercises[0].loadingType = "plate-loaded";
+    newerSession.exercises[0].loadIncrement = 2.5;
+    newerSession.exercises[0].restSeconds = 150;
+    const newer = completeActiveSession(newerSession, new Date("2026-01-08T11:00:00.000Z"));
+
+    const repeated = repeatSessionFromRecord(original, [original, newer], new Date("2026-01-10T10:00:00.000Z"));
+    expect(repeated.workoutTitle).toBe(original.workoutTitle);
+    expect(repeated.exercises.map((exercise) => exercise.id)).toEqual(original.exercises.map((exercise) => exercise.id));
+    expect(repeated.exercises[0]).toMatchObject({ lastWeight: 50, loadingType: "plate-loaded", loadIncrement: 2.5, restSeconds: 150 });
+    expect(repeated.exercises[0].sets.map((set) => set.weight)).toEqual([25, 35, 50, 50]);
+    expect(repeated.exercises.flatMap((exercise) => exercise.sets).every((set) => !set.completed && set.rir === undefined && set.rpe === undefined)).toBe(true);
+  });
+
+  it("uses an independent identifier when the historical session has no source workout", () => {
+    const session = startActiveSession(initialFourDaySplit()[0]);
+    const record = completeActiveSession(session);
+    record.sourceWorkoutId = undefined;
+    expect(repeatSessionFromRecord(record, [record]).workoutId).toBe(`repeat-${record.id}`);
   });
 });
 
