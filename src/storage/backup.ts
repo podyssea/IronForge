@@ -25,7 +25,7 @@ export function restoreBackupJson(json: string): { state: AppState; summary: Bac
     throw new Error("This file does not contain valid JSON.");
   }
   if (!isRecord(value) || value.format !== BACKUP_FORMAT || typeof value.exportedAt !== "string" || typeof value.schemaVersion !== "number" || !isRecord(value.state)) {
-    throw new Error("This is not a valid IronForge backup.");
+    throw new Error("This is not a valid Ki backup.");
   }
   const state = migrateStoredState({ ...value.state, schemaVersion: value.schemaVersion });
   if (!state) throw new Error("The backup is damaged or uses an unsupported version.");

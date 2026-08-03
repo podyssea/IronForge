@@ -21,7 +21,7 @@ export async function loadAppState(): Promise<AppState> {
   if (stored) {
     const migrated = migrateStoredState(parseJson(stored));
     if (migrated) return migrated;
-    console.warn("IronForge: stored app state is invalid; loading defaults.");
+    console.warn("Ki: stored app state is invalid; loading defaults.");
     return createDefaultAppState();
   }
   return loadLegacyState();

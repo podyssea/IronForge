@@ -113,6 +113,6 @@ describe("storage migrations", () => {
   it("rejects unsupported future schemas without throwing", () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(migrateStoredState({ schemaVersion: 99 })).toBeNull();
-    expect(warning).toHaveBeenCalledWith("IronForge: unsupported storage schema version 99.");
+    expect(warning).toHaveBeenCalledWith("Ki: unsupported storage schema version 99.");
   });
 });

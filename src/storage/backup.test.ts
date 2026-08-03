@@ -14,7 +14,7 @@ describe("offline backup", () => {
 
   it("rejects malformed and unrelated files", () => {
     expect(() => restoreBackupJson("not json")).toThrow("valid JSON");
-    expect(() => restoreBackupJson(JSON.stringify({ format: "other" }))).toThrow("not a valid IronForge backup");
+    expect(() => restoreBackupJson(JSON.stringify({ format: "other" }))).toThrow("not a valid Ki backup");
   });
 
   it("rejects damaged state without replacing current data", () => {

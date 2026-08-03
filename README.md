@@ -1,4 +1,4 @@
-# IronForge
+# Ki
 
 An offline-first strength-training coach: adaptive weekly split, quick set logging, and explainable progression recommendations.
 

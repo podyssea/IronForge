@@ -7,13 +7,13 @@ import { createBackupJson, restoreBackupJson } from "./backup";
 export async function shareAppBackup(state: AppState, now = new Date()): Promise<void> {
   if (!await Sharing.isAvailableAsync()) throw new Error("File sharing is not available on this device.");
   const date = now.toISOString().slice(0, 10);
-  const file = new File(Paths.cache, `IronForge-backup-${date}.json`);
+  const file = new File(Paths.cache, `Ki-backup-${date}.json`);
   file.create({ overwrite: true });
   file.write(createBackupJson(state, now));
   await Sharing.shareAsync(file.uri, {
     mimeType: "application/json",
     UTI: "public.json",
-    dialogTitle: "Save IronForge backup",
+    dialogTitle: "Save Ki backup",
   });
 }
 
