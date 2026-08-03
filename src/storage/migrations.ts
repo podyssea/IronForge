@@ -72,7 +72,7 @@ export function migrateStoredState(value: unknown): AppState | null {
     case 9:
       return isStoredAppStateV9(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings } : null;
     default:
-      console.warn(`IronForge: unsupported storage schema version ${value.schemaVersion}.`);
+      console.warn(`Ki: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
   }
 }

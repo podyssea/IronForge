@@ -49,7 +49,7 @@ export default function App() {
       }
       setLoaded(true);
     }).catch((error: unknown) => {
-      console.warn("IronForge: unable to load saved data.", error);
+      console.warn("Ki: unable to load saved data.", error);
       setStorageError("Saved data could not be loaded. Using the default program.");
       setLoaded(true);
     });
@@ -60,7 +60,7 @@ export default function App() {
     saveAppState({ workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile, coachingDecisions, settings })
       .then(() => setStorageError(null))
       .catch((error: unknown) => {
-        console.warn("IronForge: unable to save app data.", error);
+        console.warn("Ki: unable to save app data.", error);
         setStorageError("Changes could not be saved. Check available device storage.");
       });
   }, [workouts, records, trainingDays, phase, activeSession, coachingProfile, coachingDecisions, settings, loaded]);
@@ -226,7 +226,7 @@ export default function App() {
     try {
       await shareAppBackup(appState());
     } catch (error: unknown) {
-      Alert.alert("Backup not saved", error instanceof Error ? error.message : "IronForge could not create the backup.");
+      Alert.alert("Backup not saved", error instanceof Error ? error.message : "Ki could not create the backup.");
     } finally {
       setBackupBusy(false);
     }
@@ -241,14 +241,14 @@ export default function App() {
       const exported = Number.isNaN(date.getTime()) ? restored.summary.exportedAt : date.toLocaleString();
       Alert.alert(
         "Restore this backup?",
-        `Backup from ${exported}\n${restored.summary.workouts} workouts · ${restored.summary.sessions} saved sessions\n\nThis will replace the data currently in IronForge.`,
+        `Backup from ${exported}\n${restored.summary.workouts} workouts · ${restored.summary.sessions} saved sessions\n\nThis will replace the data currently in Ki.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Restore", style: "destructive", onPress: () => applyRestoredState(restored.state) },
         ],
       );
     } catch (error: unknown) {
-      Alert.alert("Backup not restored", error instanceof Error ? error.message : "IronForge could not read this backup.");
+      Alert.alert("Backup not restored", error instanceof Error ? error.message : "Ki could not read this backup.");
     } finally {
       setBackupBusy(false);
     }
@@ -267,7 +267,7 @@ export default function App() {
     setSelected(activeIndex >= 0 ? activeIndex : 0);
     setReplacementExerciseId(null);
     setView(state.activeSession ? "log" : "history");
-    Alert.alert("Backup restored", "Your IronForge progress and settings are back on this phone.");
+    Alert.alert("Backup restored", "Your Ki progress and settings are back on this phone.");
   }
 
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
