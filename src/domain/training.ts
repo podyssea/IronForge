@@ -1,6 +1,5 @@
 export type WeightUnit = "kg" | "lb";
-export type EffortMetric = "rir" | "rpe";
-export type SetLog = { weight: number; reps: number; completed: boolean; rir?: number; rpe?: number };
+export type SetLog = { weight: number; reps: number; completed: boolean };
 export type LoadingType = "pin-loaded" | "plate-loaded";
 export type ReadinessCheckIn = { energy: number; sleep: number; soreness: number };
 export type ReadinessAdjustment = {
@@ -26,8 +25,8 @@ export type Exercise = {
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
-export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
-export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; exercises: Exercise[] };
+export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 
@@ -108,8 +107,6 @@ export function sessionVolume(exercises: Exercise[]): number {
 export function setValidationError(set: SetLog): string | null {
   if (!Number.isFinite(set.weight) || set.weight < 0) return "Weight must be zero or greater";
   if (!Number.isInteger(set.reps) || set.reps < 1) return "Enter at least 1 rep";
-  if (set.rir !== undefined && (!Number.isInteger(set.rir) || set.rir < 0 || set.rir > 5)) return "RIR must be from 0 to 5";
-  if (set.rpe !== undefined && (!Number.isFinite(set.rpe) || set.rpe < 5 || set.rpe > 10)) return "RPE must be from 5 to 10";
   return null;
 }
 
@@ -126,6 +123,22 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     startedAt: now.toISOString(),
     notes: "",
     exercises: workout.exercises.map((exercise) => applyWarmupLoads(exercise)),
+  };
+}
+
+export function startDeloadSession(workout: Workout, now = new Date()): ActiveSession {
+  return applyDeloadToSession(startActiveSession(workout, now));
+}
+
+export function applyDeloadToSession(session: ActiveSession): ActiveSession {
+  return {
+    ...session,
+    focus: `${session.focus} · Deload 75%`,
+    deload: true,
+    exercises: session.exercises.map((exercise) => applyWarmupLoads(
+      exercise,
+      roundExerciseLoad(exercise.lastWeight * 0.75, exercise),
+    )),
   };
 }
 
@@ -197,6 +210,7 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
     completedAt: now.toISOString(),
     durationSeconds: Math.max(0, Math.round((now.getTime() - new Date(session.startedAt).getTime()) / 1000)),
     notes: session.notes,
+    deload: session.deload,
     readiness: session.readiness,
     workoutTitle: session.workoutTitle,
     exercises: session.exercises.map((exercise) => {
@@ -205,15 +219,15 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
         ...exercise,
         lastWeight: best?.weight ?? exercise.lastWeight,
         lastReps: best?.reps ?? exercise.lastReps,
-        sets: exercise.sets.map((set) => ({ ...set, completed: set.completed && !setValidationError(set) })),
+        sets: exercise.sets.map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed && !setValidationError(set) })),
       };
     }),
     volume: sessionVolume(session.exercises),
   };
 }
 
-export function repeatSessionFromRecord(record: SessionRecord, records: SessionRecord[], now = new Date(), currentWorkouts: Workout[] = []): ActiveSession {
-  return {
+export function repeatSessionFromRecord(record: SessionRecord, records: SessionRecord[], now = new Date(), currentWorkouts: Workout[] = [], deload = false): ActiveSession {
+  const session: ActiveSession = {
     id: String(now.getTime()),
     workoutId: record.sourceWorkoutId ?? `repeat-${record.id}`,
     workoutTitle: record.workoutTitle,
@@ -221,8 +235,8 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
     startedAt: now.toISOString(),
     notes: "",
     exercises: record.exercises.map((recordedExercise) => {
-      const latest = latestPerformedExercise(records, recordedExercise.id) ?? recordedExercise;
       const current = currentWorkouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === recordedExercise.id);
+      const latest = latestPerformedExercise(records, recordedExercise.id) ?? current ?? recordedExercise;
       const best = bestCompletedWorkingSet(latest);
       const workingWeight = best?.weight ?? latest.lastWeight ?? recordedExercise.lastWeight;
       const lastReps = best?.reps ?? latest.lastReps ?? recordedExercise.lastReps;
@@ -241,17 +255,19 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
       }, workingWeight);
     }),
   };
+  return deload ? applyDeloadToSession(session) : session;
 }
 
 function latestPerformedExercise(records: SessionRecord[], exerciseId: string): Exercise | undefined {
   return records
-    .filter((item) => item.exercises.some((exercise) => exercise.id === exerciseId))
+    .filter((item) => !item.deload && item.exercises.some((exercise) => exercise.id === exerciseId))
     .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
     .map((item) => item.exercises.find((exercise) => exercise.id === exerciseId))
     .find((exercise): exercise is Exercise => Boolean(exercise));
 }
 
 export function applySessionPerformance(workouts: Workout[], session: ActiveSession): Workout[] {
+  if (session.deload) return workouts;
   return workouts.map((workout) => workout.id !== session.workoutId ? workout : {
     ...workout,
     exercises: workout.exercises.map((exercise) => {
@@ -295,7 +311,7 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
 export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string {
   const completed = workingSets(exercise).filter((set) => set.completed);
   const best = bestCompletedWorkingSet(exercise);
-  if (completed.length === Math.min(2, exercise.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${displayWeight(best.weight + loadIncrement({ ...exercise, lastWeight: best.weight }), unit)} ${weightUnitLabel(unit)} next time`;
+  if (completed.length === Math.min(2, exercise.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${displayExerciseWeight(best.weight + loadIncrement({ ...exercise, lastWeight: best.weight }), exercise, unit)} ${exerciseWeightLabel(exercise, unit)} next time`;
   return `Progress when both working sets reach ${exercise.repRange[1]} reps`;
 }
 
@@ -325,6 +341,21 @@ export function displayWeight(weightKg: number, unit: WeightUnit): number {
 export function storedWeight(displayedWeight: number, unit: WeightUnit): number {
   const value = unit === "lb" ? displayedWeight / 2.2046226218 : displayedWeight;
   return Math.round(value * 100) / 100;
+}
+
+export function displayExerciseWeight(weightKg: number, exercise: Pick<Exercise, "loadingType">, unit: WeightUnit): number {
+  if (exercise.loadingType !== "plate-loaded") return displayWeight(weightKg, unit);
+  const perSideKg = weightKg / 2;
+  return unit === "kg" ? Math.round(perSideKg * 100) / 100 : displayWeight(perSideKg, unit);
+}
+
+export function storedExerciseWeight(displayedWeight: number, exercise: Pick<Exercise, "loadingType">, unit: WeightUnit): number {
+  const weightKg = storedWeight(displayedWeight, unit);
+  return exercise.loadingType === "plate-loaded" ? weightKg * 2 : weightKg;
+}
+
+export function exerciseWeightLabel(exercise: Pick<Exercise, "loadingType">, unit: WeightUnit): string {
+  return exercise.loadingType === "plate-loaded" ? `${weightUnitLabel(unit)}/side` : weightUnitLabel(unit);
 }
 
 export function weightUnitLabel(unit: WeightUnit): string {

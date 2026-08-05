@@ -30,6 +30,7 @@ export type CoachingRecommendation = {
   currentWeight: number;
   suggestedWeight: number;
   reason: string;
+  loadingType?: Exercise["loadingType"];
 };
 
 export type CoachingDecision = {
@@ -43,7 +44,7 @@ export function buildWorkoutRecommendations(workout: Workout, records: SessionRe
   const decided = new Set(decisions.map((decision) => decision.recommendationId));
   return workout.exercises.flatMap((exercise) => {
     const performances = records
-      .filter((record) => record.sourceWorkoutId === workout.id && record.exercises.some((item) => item.id === exercise.id))
+      .filter((record) => !record.deload && record.sourceWorkoutId === workout.id && record.exercises.some((item) => item.id === exercise.id))
       .slice(0, 3)
       .map((record) => ({ record, exercise: record.exercises.find((item) => item.id === exercise.id) as Exercise }));
     if (!performances.length) return [];
@@ -57,22 +58,19 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
   const recent = performances.slice(0, 2);
   const successful = recent.length === 2 && recent.every(({ exercise: performed }) => {
     const completed = workingSets(performed).filter((set) => set.completed);
-    return completed.length === Math.min(2, performed.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1] && effortAllowsIncrease(set));
+    return completed.length === Math.min(2, performed.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]);
   });
   const repeatedlyIncomplete = recent.length === 2 && recent.every(({ exercise: performed }) => workingSets(performed).filter((set) => set.completed).length < Math.min(2, performed.sets.length));
   const plateau = performances.length === 3 && performances.every(({ exercise: performed }) => performed.lastWeight === performances[0].exercise.lastWeight)
     && averageReps(performances[0].exercise) <= averageReps(performances[2].exercise);
   const increment = loadIncrement(exercise);
   const reduction = roundExerciseLoad(exercise.lastWeight * 0.9, exercise);
-  const highEffort = recent.some(({ exercise: performed }) => workingSets(performed).some((set) => set.completed && (set.rir === 0 || set.rpe === 10)));
   const action: CoachingRecommendation["action"] = successful && exercise.lastWeight > 0 ? "increase" : repeatedlyIncomplete && exercise.lastWeight > 0 ? "reduce" : "hold";
   const suggestedWeight = action === "increase" ? exercise.lastWeight + increment : action === "reduce" ? reduction : exercise.lastWeight;
   const reason = action === "increase"
     ? `You reached ${exercise.repRange[1]}+ reps across both working sets in your last two sessions.`
     : action === "reduce"
       ? "You missed prescribed sets in your last two sessions. A small reset can rebuild momentum."
-      : highEffort
-        ? "Your last working sets were at maximum effort. Hold the load until you finish with at least 1 RIR or below RPE 10."
       : plateau
         ? "Your load and average reps have stalled across three sessions. Hold the load and aim to add a rep."
         : recent.length < 2
@@ -87,16 +85,13 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
     currentWeight: exercise.lastWeight,
     suggestedWeight,
     reason,
+    loadingType: exercise.loadingType,
   };
 }
 
 function averageReps(exercise: Exercise): number {
   const completed = workingSets(exercise).filter((set) => set.completed);
   return completed.length ? completed.reduce((sum, set) => sum + set.reps, 0) / completed.length : 0;
-}
-
-function effortAllowsIncrease(set: { rir?: number; rpe?: number }): boolean {
-  return (set.rir === undefined || set.rir >= 1) && (set.rpe === undefined || set.rpe < 10);
 }
 
 export function applyCoachingRecommendation(workouts: Workout[], recommendation: CoachingRecommendation, selectedWeight: number): Workout[] {

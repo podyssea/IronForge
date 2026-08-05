@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareSessionExercises, deleteSessionRecord, exerciseVolume, formatDuration } from "./sessionJournal";
+import { compareSessionExercises, deleteSessionRecord, exerciseVolume, formatDuration, groupRecordsByWeek, recentTwoWeekRecords } from "./sessionJournal";
 import { completeActiveSession, initialFourDaySplit, startActiveSession } from "./training";
 
 function completedRecord(weight: number, reps: number, start: string, finish: string, notes = "") {
@@ -44,5 +44,15 @@ describe("workout journal", () => {
 
   it("formats unavailable legacy duration", () => {
     expect(formatDuration()).toBe("Duration unavailable");
+  });
+
+  it("keeps only the current and previous calendar week", () => {
+    const current = completedRecord(50, 8, "2026-01-14T10:00:00.000Z", "2026-01-14T11:00:00.000Z");
+    const previous = completedRecord(45, 8, "2026-01-07T10:00:00.000Z", "2026-01-07T11:00:00.000Z");
+    const expired = completedRecord(40, 8, "2025-12-31T10:00:00.000Z", "2025-12-31T11:00:00.000Z");
+    const now = new Date("2026-01-14T18:00:00.000Z");
+
+    expect(recentTwoWeekRecords([current, previous, expired], now)).toEqual([current, previous]);
+    expect(groupRecordsByWeek([current, previous, expired], now).map((group) => group.label)).toEqual(["THIS WEEK", "LAST WEEK"]);
   });
 });

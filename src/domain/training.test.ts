@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, repeatSessionFromRecord, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession, storedWeight, updateExercisePrescription } from "./training";
+import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, repeatSessionFromRecord, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -55,13 +55,6 @@ describe("set validation and session calculations", () => {
     expect(setValidationError({ weight: 10, reps: 8.5, completed: false })).toMatch(/rep/);
   });
 
-  it("validates optional working-set effort", () => {
-    expect(setValidationError({ weight: 80, reps: 8, completed: true, rir: 2 })).toBeNull();
-    expect(setValidationError({ weight: 80, reps: 8, completed: true, rir: 6 })).toMatch(/RIR/);
-    expect(setValidationError({ weight: 80, reps: 8, completed: true, rpe: 9.5 })).toBeNull();
-    expect(setValidationError({ weight: 80, reps: 8, completed: true, rpe: 4 })).toMatch(/RPE/);
-  });
-
   it("counts only valid completed sets in volume", () => {
     const exercise = initialFourDaySplit()[0].exercises[0];
     exercise.sets = [
@@ -107,6 +100,40 @@ describe("active session lifecycle", () => {
   });
 });
 
+describe("workout deload", () => {
+  it("uses 75% working loads and recalculates warm-ups", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].lastWeight = 100;
+    workout.exercises[0].loadingType = "plate-loaded";
+    const session = startDeloadSession(workout, new Date("2026-01-01T10:00:00.000Z"));
+
+    expect(session.deload).toBe(true);
+    expect(session.focus).toContain("Deload 75%");
+    expect(session.exercises[0].sets.map((set) => set.weight)).toEqual([37.5, 52.5, 75, 75]);
+    expect(workout.exercises[0].lastWeight).toBe(100);
+  });
+
+  it("rounds the reduced weight to the exercise increment", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].lastWeight = 85;
+    workout.exercises[0].loadingType = "pin-loaded";
+
+    expect(startDeloadSession(workout).exercises[0].sets.map((set) => set.weight)).toEqual([35, 45, 65, 65]);
+  });
+
+  it("saves deload history without lowering the normal workout prescription", () => {
+    const workouts = initialFourDaySplit();
+    workouts[0].exercises[0].lastWeight = 100;
+    workouts[0].exercises[0].loadingType = "plate-loaded";
+    const session = startDeloadSession(workouts[0]);
+    session.exercises[0].sets = session.exercises[0].sets.map((set) => ({ ...set, completed: true }));
+
+    expect(completeActiveSession(session).deload).toBe(true);
+    expect(applySessionPerformance(workouts, session)).toBe(workouts);
+    expect(workouts[0].exercises[0].lastWeight).toBe(100);
+  });
+});
+
 describe("repeat workout", () => {
   it("recreates a historical workout with the latest load for every exercise", () => {
     const workout = initialFourDaySplit()[0];
@@ -125,7 +152,7 @@ describe("repeat workout", () => {
     expect(repeated.exercises.map((exercise) => exercise.id)).toEqual(original.exercises.map((exercise) => exercise.id));
     expect(repeated.exercises[0]).toMatchObject({ lastWeight: 50, loadingType: "plate-loaded", loadIncrement: 2.5, restSeconds: 150 });
     expect(repeated.exercises[0].sets.map((set) => set.weight)).toEqual([25, 35, 50, 50]);
-    expect(repeated.exercises.flatMap((exercise) => exercise.sets).every((set) => !set.completed && set.rir === undefined && set.rpe === undefined)).toBe(true);
+    expect(repeated.exercises.flatMap((exercise) => exercise.sets).every((set) => !set.completed)).toBe(true);
   });
 
   it("uses an independent identifier when the historical session has no source workout", () => {
@@ -133,6 +160,17 @@ describe("repeat workout", () => {
     const record = completeActiveSession(session);
     record.sourceWorkoutId = undefined;
     expect(repeatSessionFromRecord(record, [record]).workoutId).toBe(`repeat-${record.id}`);
+  });
+
+  it("can repeat a historical workout as a 75% deload", () => {
+    const workout = initialFourDaySplit()[0];
+    workout.exercises[0].lastWeight = 100;
+    workout.exercises[0].loadingType = "plate-loaded";
+    const record = completeActiveSession(startActiveSession(workout));
+    const repeated = repeatSessionFromRecord(record, [record], new Date(), [workout], true);
+
+    expect(repeated.deload).toBe(true);
+    expect(repeated.exercises[0].sets.map((set) => set.weight)).toEqual([37.5, 52.5, 75, 75]);
   });
 });
 
@@ -173,12 +211,28 @@ describe("units and workout editing", () => {
     expect(storedWeight(220.5, "lb")).toBeCloseTo(100, 1);
   });
 
+  it("shows and accepts plate-loaded weights per side while storing total load", () => {
+    const exercise = { loadingType: "plate-loaded" as const };
+    expect(displayExerciseWeight(100, exercise, "kg")).toBe(50);
+    expect(storedExerciseWeight(50, exercise, "kg")).toBe(100);
+    expect(displayExerciseWeight(100, exercise, "lb")).toBe(110.2);
+  });
+
   it("updates prescriptions while retaining two working sets", () => {
     const exercise = updateExercisePrescription(initialFourDaySplit()[0].exercises[0], { targetSets: 5, repRange: [5, 7], loadIncrement: 2, restSeconds: 150 });
     expect(exercise.sets).toHaveLength(5);
     expect(exercise.repRange).toEqual([5, 7]);
     expect(exercise.loadIncrement).toBe(2);
     expect(exercise.restSeconds).toBe(150);
+  });
+
+  it("removes sets without allowing fewer than two working sets", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    const reduced = updateExercisePrescription(exercise, { targetSets: exercise.targetSets - 1 });
+    const minimum = updateExercisePrescription(reduced, { targetSets: 1 });
+
+    expect(reduced.sets).toHaveLength(3);
+    expect(minimum.sets).toHaveLength(2);
   });
 
   it("creates and reorders custom exercises", () => {

@@ -86,22 +86,22 @@ describe("storage migrations", () => {
     expect(migrated?.settings).toEqual(DEFAULT_APP_SETTINGS);
   });
 
-  it("restores schema version 9 training settings and effort data", () => {
+  it("migrates schema version 9 settings without the retired effort preference", () => {
     const workouts = initialFourDaySplit();
     workouts[0].exercises[0].loadIncrement = 1.25;
     workouts[0].exercises[0].restSeconds = 150;
-    workouts[0].exercises[0].sets[2].rir = 2;
+    (workouts[0].exercises[0].sets[2] as unknown as { rir?: number }).rir = 2;
     const settings = { weightUnit: "lb" as const, effortMetric: "rpe" as const, defaultRestSeconds: 120 };
     const migrated = migrateStoredState({ schemaVersion: 9, workouts, records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings });
-    expect(migrated?.settings).toEqual(settings);
+    expect(migrated?.settings).toEqual({ weightUnit: "lb", defaultRestSeconds: 120 });
     expect(migrated?.workouts[0].exercises[0]).toMatchObject({ loadIncrement: 1.25, restSeconds: 150 });
-    expect(migrated?.workouts[0].exercises[0].sets[2].rir).toBe(2);
+    expect(migrated?.workouts[0].exercises[0].sets[2]).toEqual(expect.not.objectContaining({ rir: 2 }));
   });
 
   it("persists the optional Classic Physique coaching style", () => {
     const workouts = initialFourDaySplit();
     const coachingProfile = { ...DEFAULT_COACHING_PROFILE, coachingStyle: "classic-physique" as const };
-    const migrated = migrateStoredState({ schemaVersion: 9, workouts, records: [], program, activeSession: null, coachingProfile, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS });
+    const migrated = migrateStoredState({ schemaVersion: 10, workouts, records: [], program, activeSession: null, coachingProfile, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS });
     expect(migrated?.coachingProfile.coachingStyle).toBe("classic-physique");
   });
 

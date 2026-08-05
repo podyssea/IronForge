@@ -1,8 +1,8 @@
-import { isWorkingSet, SessionRecord, SetLog } from "./training";
+import { isWorkingSet, LoadingType, SessionRecord, SetLog } from "./training";
 
 export type AnalyticsRange = 7 | 30 | "all";
-export type ExerciseProgress = { recordId: string; completedAt: string; weight: number; reps: number; volume: number };
-export type ExerciseRecord = { exerciseId: string; exerciseName: string; maxWeight: number; maxReps: number; bestSetVolume: number; achievedAt: string };
+export type ExerciseProgress = { recordId: string; completedAt: string; weight: number; reps: number; volume: number; loadingType?: LoadingType };
+export type ExerciseRecord = { exerciseId: string; exerciseName: string; maxWeight: number; maxReps: number; bestSetVolume: number; achievedAt: string; loadingType?: LoadingType };
 export type TrainingAnalytics = {
   sessions: number;
   sets: number;
@@ -64,7 +64,7 @@ export function exerciseProgress(records: SessionRecord[], exerciseId: string, r
     const completed = exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index));
     if (!completed.length) return [];
     const best = completed.reduce((winner, set) => set.weight * set.reps > winner.weight * winner.reps ? set : winner);
-    return [{ recordId: record.id, completedAt: record.completedAt, weight: best.weight, reps: best.reps, volume: completed.reduce((sum, set) => sum + set.weight * set.reps, 0) }];
+    return [{ recordId: record.id, completedAt: record.completedAt, weight: best.weight, reps: best.reps, volume: completed.reduce((sum, set) => sum + set.weight * set.reps, 0), loadingType: exercise.loadingType }];
   }).reverse();
 }
 
@@ -77,7 +77,7 @@ export function personalRecords(records: SessionRecord[]): ExerciseRecord[] {
     const maxWeight = Math.max(...completed.map((set) => set.weight), prior?.maxWeight ?? 0);
     const maxReps = Math.max(...completed.map((set) => set.reps), prior?.maxReps ?? 0);
     const bestSetVolume = Math.max(...completed.map(setVolume), prior?.bestSetVolume ?? 0);
-    results.set(exercise.id, { exerciseId: exercise.id, exerciseName: exercise.name, maxWeight, maxReps, bestSetVolume, achievedAt: bestSetVolume > (prior?.bestSetVolume ?? -1) ? record.completedAt : prior?.achievedAt ?? record.completedAt });
+    results.set(exercise.id, { exerciseId: exercise.id, exerciseName: exercise.name, maxWeight, maxReps, bestSetVolume, achievedAt: bestSetVolume > (prior?.bestSetVolume ?? -1) ? record.completedAt : prior?.achievedAt ?? record.completedAt, loadingType: exercise.loadingType ?? prior?.loadingType });
   }));
   return [...results.values()].sort((a, b) => b.bestSetVolume - a.bestSetVolume);
 }
