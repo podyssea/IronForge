@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision } from "./coaching";
+import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, DEFAULT_COACHING_PROFILE, fixedTrainingProfile } from "./coaching";
 import { completeActiveSession, initialFourDaySplit, startActiveSession } from "./training";
 
 function performance(reps: number, completedSets = 4, date = "2026-01-02T10:00:00.000Z") {
@@ -10,6 +10,13 @@ function performance(reps: number, completedSets = 4, date = "2026-01-02T10:00:0
 }
 
 describe("adaptive coaching", () => {
+  it("enforces the fixed advanced 60-minute all-equipment profile", () => {
+    const fixed = fixedTrainingProfile({ ...DEFAULT_COACHING_PROFILE, experience: "beginner", sessionMinutes: 30, availableEquipment: ["bodyweight"] });
+    expect(fixed.experience).toBe("advanced");
+    expect(fixed.sessionMinutes).toBe(60);
+    expect(fixed.availableEquipment).toHaveLength(8);
+  });
+
   it("holds after a single performance while building a trend", () => {
     const workout = initialFourDaySplit()[0];
     const recommendation = buildWorkoutRecommendations(workout, [performance(8)], [])[0];

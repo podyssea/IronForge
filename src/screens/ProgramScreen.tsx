@@ -1,7 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CoachingProfile } from "../domain/coaching";
-import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
-import { AppSettings } from "../storage/migrations";
+import { TrainingStyle } from "../domain/exerciseLibrary";
 
 const GOALS: { value: TrainingStyle; label: string; detail: string }[] = [
   { value: "strength", label: "Strength", detail: "Heavier compounds and lower reps" },
@@ -9,29 +8,20 @@ const GOALS: { value: TrainingStyle; label: string; detail: string }[] = [
   { value: "general-fitness", label: "General fitness", detail: "Balanced strength, muscle and movement" },
   { value: "muscular-endurance", label: "Endurance", detail: "Higher reps and shorter sessions" },
 ];
-const EXPERIENCE: ExperienceLevel[] = ["beginner", "intermediate", "advanced"];
-const EQUIPMENT: Equipment[] = ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"];
 
 type ProgramScreenProps = {
   trainingDays: number;
   profile: CoachingProfile;
-  settings: AppSettings;
   backupBusy: boolean;
   onDays: (days: number) => void;
   onProfile: (profile: CoachingProfile) => void;
-  onSettings: (settings: AppSettings) => void;
   onApply: () => void;
   onExportBackup: () => void;
   onImportBackup: () => void;
 };
 
-export function ProgramScreen({ trainingDays, profile, settings, backupBusy, onDays, onProfile, onSettings, onApply, onExportBackup, onImportBackup }: ProgramScreenProps) {
+export function ProgramScreen({ trainingDays, profile, backupBusy, onDays, onProfile, onApply, onExportBackup, onImportBackup }: ProgramScreenProps) {
   const update = (changes: Partial<CoachingProfile>) => onProfile({ ...profile, ...changes });
-  const toggleEquipment = (item: Equipment) => {
-    const selected = profile.availableEquipment.includes(item);
-    if (selected && profile.availableEquipment.length === 1) return;
-    update({ availableEquipment: selected ? profile.availableEquipment.filter((option) => option !== item) : [...profile.availableEquipment, item] });
-  };
   const estimatedExercises = Math.max(4, Math.min(9, Math.floor((profile.sessionMinutes - 8) / 7)));
 
   return <><Text style={styles.kicker}>PERSONAL COACH</Text><Text style={styles.title}>Build your program</Text>
@@ -39,16 +29,8 @@ export function ProgramScreen({ trainingDays, profile, settings, backupBusy, onD
     <Pressable onPress={() => update({ coachingStyle: "balanced" })} style={[styles.option, profile.coachingStyle === "balanced" && styles.optionActive]}><View style={styles.optionCopy}><Text style={[styles.optionName, profile.coachingStyle === "balanced" && styles.optionNameActive]}>BALANCED</Text><Text style={styles.optionText}>Versatile programming across strength, fitness and hypertrophy</Text></View><Radio active={profile.coachingStyle === "balanced"} /></Pressable>
     <Pressable onPress={() => update({ coachingStyle: "classic-physique", goal: "hypertrophy" })} style={[styles.option, profile.coachingStyle !== "balanced" && styles.optionActive]}><View style={styles.optionCopy}><Text style={[styles.optionName, profile.coachingStyle !== "balanced" && styles.optionNameActive]}>CLASSIC PHYSIQUE</Text><Text style={styles.optionText}>CBum-influenced physique training: upper chest, back, delts, arms and detailed legs</Text></View><Radio active={profile.coachingStyle !== "balanced"} /></Pressable>
     <Text style={styles.builderLabel}>PRIMARY GOAL</Text>{GOALS.map((goal) => <Pressable key={goal.value} onPress={() => update({ goal: goal.value })} style={[styles.option, profile.goal === goal.value && styles.optionActive]}><View><Text style={[styles.optionName, profile.goal === goal.value && styles.optionNameActive]}>{goal.label.toUpperCase()}</Text><Text style={styles.optionText}>{goal.detail}</Text></View><Radio active={profile.goal === goal.value} /></Pressable>)}
-    <Text style={styles.builderLabel}>EXPERIENCE</Text><View style={styles.choiceRow}>{EXPERIENCE.map((item) => <Pressable key={item} onPress={() => update({ experience: item })} style={[styles.smallChoice, profile.experience === item && styles.smallChoiceActive]}><Text style={[styles.smallChoiceText, profile.experience === item && styles.smallChoiceTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
     <Text style={styles.builderLabel}>TRAINING DAYS</Text><View style={styles.choiceRow}>{[2, 3, 4, 5].map((days) => <Pressable key={days} onPress={() => onDays(days)} style={[styles.dayChoice, trainingDays === days && styles.dayChoiceActive]}><Text style={[styles.dayChoiceText, trainingDays === days && styles.dayChoiceTextActive]}>{days}</Text><Text style={[styles.dayChoiceCaption, trainingDays === days && styles.dayChoiceTextActive]}>DAYS</Text></Pressable>)}</View>
-    <Text style={styles.builderLabel}>SESSION LENGTH</Text><View style={styles.wrap}>{[30, 45, 60, 75, 90].map((minutes) => <Pressable key={minutes} onPress={() => update({ sessionMinutes: minutes })} style={[styles.chip, profile.sessionMinutes === minutes && styles.chipActive]}><Text style={[styles.chipText, profile.sessionMinutes === minutes && styles.chipTextActive]}>{minutes} MIN</Text></Pressable>)}</View>
-    <Text style={styles.builderLabel}>AVAILABLE EQUIPMENT</Text><View style={styles.wrap}>{EQUIPMENT.map((item) => <Pressable key={item} onPress={() => toggleEquipment(item)} style={[styles.chip, profile.availableEquipment.includes(item) && styles.chipActive]}><Text style={[styles.chipText, profile.availableEquipment.includes(item) && styles.chipTextActive]}>{item.replaceAll("-", " ").toUpperCase()}</Text></Pressable>)}</View>
-    <Text style={styles.builderLabel}>TRAINING SETTINGS</Text>
-    <View style={styles.settingCard}>
-      <Text style={styles.settingName}>WEIGHT UNIT</Text><View style={styles.choiceRow}>{(["kg", "lb"] as const).map((unit) => <Pressable key={unit} onPress={() => onSettings({ ...settings, weightUnit: unit })} style={[styles.smallChoice, settings.weightUnit === unit && styles.smallChoiceActive]}><Text style={[styles.smallChoiceText, settings.weightUnit === unit && styles.smallChoiceTextActive]}>{unit.toUpperCase()}</Text></Pressable>)}</View>
-      <Text style={styles.settingName}>DEFAULT REST TIMER</Text><View style={styles.wrap}>{[60, 90, 120, 180].map((seconds) => <Pressable key={seconds} onPress={() => onSettings({ ...settings, defaultRestSeconds: seconds })} style={[styles.chip, settings.defaultRestSeconds === seconds && styles.chipActive]}><Text style={[styles.chipText, settings.defaultRestSeconds === seconds && styles.chipTextActive]}>{seconds < 60 ? `${seconds} SEC` : `${seconds / 60} MIN`}</Text></Pressable>)}</View>
-    </View>
-    <View style={styles.preview}><Text style={styles.previewTitle}>{trainingDays}-day {profile.coachingStyle !== "balanced" ? "Classic Physique" : profile.goal.replaceAll("-", " ")} plan</Text><Text style={styles.previewText}>Approximately {estimatedExercises} exercises per session for a {profile.sessionMinutes}-minute target. Exercise difficulty is capped at {profile.experience} and restricted to your selected equipment.{profile.coachingStyle !== "balanced" ? " Stable compounds, complementary angles and targeted isolation work receive priority." : ""}</Text></View>
+    <View style={styles.preview}><Text style={styles.previewTitle}>{trainingDays}-day {profile.coachingStyle !== "balanced" ? "Classic Physique" : profile.goal.replaceAll("-", " ")} plan</Text><Text style={styles.previewText}>Approximately {estimatedExercises} exercises per 60-minute session. Advanced exercise options and all equipment are enabled by default.{profile.coachingStyle !== "balanced" ? " Stable compounds, complementary angles and targeted isolation work receive priority." : ""}</Text></View>
     <Pressable style={styles.finish} onPress={onApply}><Text style={styles.finishText}>GENERATE MY PROGRAM</Text><Text style={styles.finishArrow}>→</Text></Pressable>
     <Text style={styles.builderLabel}>DATA & BACKUP</Text>
     <View style={styles.backupCard}>
