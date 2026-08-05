@@ -1,12 +1,13 @@
-import { ActiveSession, EffortMetric, Exercise, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { ActiveSession, Exercise, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
-export type AppSettings = { weightUnit: WeightUnit; effortMetric: EffortMetric; defaultRestSeconds: number };
-export const DEFAULT_APP_SETTINGS: AppSettings = { weightUnit: "kg", effortMetric: "rir", defaultRestSeconds: 90 };
+export type AppSettings = { weightUnit: WeightUnit; defaultRestSeconds: number };
+export const DEFAULT_APP_SETTINGS: AppSettings = { weightUnit: "kg", defaultRestSeconds: 90 };
+type LegacyAppSettings = AppSettings & { effortMetric: "rir" | "rpe" };
 
 export type ProgramPreferences = {
   trainingDays: number;
@@ -32,7 +33,8 @@ export type StoredAppStateV5 = LegacyAppState & { schemaVersion: 5 };
 export type StoredAppStateV6 = LegacyAppState & { schemaVersion: 6 };
 export type StoredAppStateV7 = LegacyAppState & { schemaVersion: 7 };
 export type StoredAppStateV8 = LegacyAppState & { schemaVersion: 8 };
-export type StoredAppStateV9 = AppState & { schemaVersion: 9 };
+export type StoredAppStateV9 = Omit<AppState, "settings"> & { settings: LegacyAppSettings; schemaVersion: 9 };
+export type StoredAppStateV10 = AppState & { schemaVersion: 10 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
@@ -70,7 +72,9 @@ export function migrateStoredState(value: unknown): AppState | null {
     case 8:
       return isStoredAppStateV8(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: { ...DEFAULT_APP_SETTINGS } } : null;
     case 9:
-      return isStoredAppStateV9(value) ? { workouts: value.workouts, records: normalizeRecords(value.records), program: value.program, activeSession: value.activeSession, coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings } : null;
+      return isStoredAppStateV9(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: { weightUnit: value.settings.weightUnit, defaultRestSeconds: value.settings.defaultRestSeconds } } : null;
+    case 10:
+      return isStoredAppStateV10(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings } : null;
     default:
       console.warn(`Ki: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -86,6 +90,7 @@ export function isSessionRecordArray(value: unknown): value is SessionRecord[] {
     && typeof record.id === "string"
     && typeof record.completedAt === "string"
     && typeof record.workoutTitle === "string"
+    && (record.deload === undefined || typeof record.deload === "boolean")
     && (record.readiness === undefined || isReadiness(record.readiness))
     && Array.isArray(record.exercises)
     && record.exercises.every(isExercise)
@@ -177,16 +182,27 @@ function isStoredAppStateV8(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV9(value: Record<string, unknown>): value is StoredAppStateV9 {
   return value.schemaVersion === 9
     && isStoredAppStateV8({ ...value, schemaVersion: 8 })
+    && isLegacyAppSettings(value.settings);
+}
+
+function isStoredAppStateV10(value: Record<string, unknown>): value is StoredAppStateV10 {
+  return value.schemaVersion === 10
+    && isStoredAppStateV8({ ...value, schemaVersion: 8 })
     && isAppSettings(value.settings);
 }
 
 function isAppSettings(value: unknown): value is AppSettings {
   return isRecord(value)
     && (value.weightUnit === "kg" || value.weightUnit === "lb")
-    && (value.effortMetric === "rir" || value.effortMetric === "rpe")
     && Number.isInteger(value.defaultRestSeconds)
     && (value.defaultRestSeconds as number) >= 15
     && (value.defaultRestSeconds as number) <= 600;
+}
+
+function isLegacyAppSettings(value: unknown): value is LegacyAppSettings {
+  if (!isAppSettings(value)) return false;
+  const effortMetric = (value as unknown as Record<string, unknown>).effortMetric;
+  return effortMetric === "rir" || effortMetric === "rpe";
 }
 
 function isCoachingDecision(value: unknown): value is CoachingDecision {
@@ -199,11 +215,19 @@ function isCoachingDecision(value: unknown): value is CoachingDecision {
 }
 
 function normalizeRecords(records: SessionRecord[]): SessionRecord[] {
-  return records.map((record) => ({ ...record, notes: record.notes ?? "" }));
+  return records.map((record) => ({ ...record, notes: record.notes ?? "", exercises: record.exercises.map(normalizeExercise) }));
 }
 
 function normalizeActiveSession(session: ActiveSession | null): ActiveSession | null {
-  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "" } : null;
+  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "", exercises: session.exercises.map(normalizeExercise) } : null;
+}
+
+function normalizeWorkouts(workouts: Workout[]): Workout[] {
+  return workouts.map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercise) }));
+}
+
+function normalizeExercise(exercise: Exercise): Exercise {
+  return { ...exercise, sets: exercise.sets.map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed })) };
 }
 
 const EQUIPMENT: Equipment[] = ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"];
@@ -254,8 +278,7 @@ function isExercise(value: unknown): value is Exercise {
       && isFiniteNumber(set.weight)
       && isFiniteNumber(set.reps)
       && typeof set.completed === "boolean"
-      && (set.rir === undefined || (Number.isInteger(set.rir) && (set.rir as number) >= 0 && (set.rir as number) <= 5))
-      && (set.rpe === undefined || (isFiniteNumber(set.rpe) && set.rpe >= 5 && set.rpe <= 10)));
+    );
 }
 
 function isActiveSession(value: unknown): value is ActiveSession {
@@ -265,6 +288,7 @@ function isActiveSession(value: unknown): value is ActiveSession {
     && typeof value.workoutTitle === "string"
     && typeof value.focus === "string"
     && typeof value.startedAt === "string"
+    && (value.deload === undefined || typeof value.deload === "boolean")
     && (value.readiness === undefined || isReadiness(value.readiness))
     && Array.isArray(value.exercises)
     && value.exercises.every(isExercise);

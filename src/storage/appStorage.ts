@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
-import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, ProgramPreferences, StoredAppStateV9 } from "./migrations";
+import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, ProgramPreferences, StoredAppStateV10 } from "./migrations";
 
 const APP_STATE_KEY = "ironforge-app-state";
 const LEGACY_WORKOUTS_KEY = "ironforge-workouts-v1";
@@ -28,7 +28,7 @@ export async function loadAppState(): Promise<AppState> {
 }
 
 export async function saveAppState(state: AppState): Promise<void> {
-  const stored: StoredAppStateV9 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
+  const stored: StoredAppStateV10 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
   await AsyncStorage.setItem(APP_STATE_KEY, JSON.stringify(stored));
 }
 

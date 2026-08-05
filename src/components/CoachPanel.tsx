@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CoachingRecommendation } from "../domain/coaching";
-import { displayWeight, storedWeight, WeightUnit, weightUnitLabel } from "../domain/training";
+import { displayExerciseWeight, exerciseWeightLabel, storedExerciseWeight, WeightUnit } from "../domain/training";
 
 type CoachPanelProps = {
   recommendations: CoachingRecommendation[];
@@ -24,10 +24,12 @@ export function CoachPanel({ recommendations, onApply, onReject, weightUnit }: C
     <Text style={styles.intro}>Built from your completed workouts. You stay in control of every load.</Text>
     {recommendations.map((item) => {
       const weight = weights[item.id] ?? item.suggestedWeight;
+      const exercise = { loadingType: item.loadingType };
+      const step = storedExerciseWeight(weightUnit === "lb" ? 1 : .5, exercise, weightUnit);
       return <View key={item.id} style={styles.card}>
         <View style={styles.row}><Text style={styles.name}>{item.exerciseName}</Text><Text style={[styles.badge, item.action === "increase" ? styles.increase : item.action === "reduce" ? styles.reduce : styles.hold]}>{item.action.toUpperCase()}</Text></View>
         <Text style={styles.reason}>{item.reason}</Text>
-        <View style={styles.loadRow}><Text style={styles.current}>{displayWeight(item.currentWeight, weightUnit)} {weightUnitLabel(weightUnit)} →</Text><Pressable accessibilityLabel={`Decrease ${item.exerciseName} recommendation`} onPress={() => setWeights((current) => ({ ...current, [item.id]: Math.max(0, weight - storedWeight(weightUnit === "lb" ? 1 : .5, weightUnit)) }))} style={styles.step}><Text style={styles.stepText}>−</Text></Pressable><Text style={styles.weight}>{displayWeight(weight, weightUnit)} {weightUnitLabel(weightUnit)}</Text><Pressable accessibilityLabel={`Increase ${item.exerciseName} recommendation`} onPress={() => setWeights((current) => ({ ...current, [item.id]: weight + storedWeight(weightUnit === "lb" ? 1 : .5, weightUnit) }))} style={styles.step}><Text style={styles.stepText}>+</Text></Pressable></View>
+        <View style={styles.loadRow}><Text style={styles.current}>{displayExerciseWeight(item.currentWeight, exercise, weightUnit)} {exerciseWeightLabel(exercise, weightUnit)} →</Text><Pressable accessibilityLabel={`Decrease ${item.exerciseName} recommendation`} onPress={() => setWeights((current) => ({ ...current, [item.id]: Math.max(0, weight - step) }))} style={styles.step}><Text style={styles.stepText}>−</Text></Pressable><Text style={styles.weight}>{displayExerciseWeight(weight, exercise, weightUnit)} {exerciseWeightLabel(exercise, weightUnit)}</Text><Pressable accessibilityLabel={`Increase ${item.exerciseName} recommendation`} onPress={() => setWeights((current) => ({ ...current, [item.id]: weight + step }))} style={styles.step}><Text style={styles.stepText}>+</Text></Pressable></View>
         <View style={styles.actions}><Pressable onPress={() => onReject(item)} style={styles.reject}><Text style={styles.rejectText}>KEEP CURRENT</Text></Pressable><Pressable onPress={() => onApply(item, weight)} style={styles.apply}><Text style={styles.applyText}>{weight === item.suggestedWeight ? "APPLY" : "APPLY CUSTOM"}</Text></Pressable></View>
       </View>;
     })}
