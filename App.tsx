@@ -12,7 +12,7 @@ import { ExerciseLibraryScreen } from "./src/screens/ExerciseLibraryScreen";
 import { AppState, loadAppState, saveAppState } from "./src/storage/appStorage";
 import { pickAppBackup, shareAppBackup } from "./src/storage/backupFiles";
 import { AppSettings, DEFAULT_APP_SETTINGS } from "./src/storage/migrations";
-import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE } from "./src/domain/coaching";
+import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE, fixedTrainingProfile } from "./src/domain/coaching";
 
 type AppView = "log" | "history" | "program" | "library";
 
@@ -40,9 +40,9 @@ export default function App() {
       setTrainingDays(state.program.trainingDays);
       setPhase(state.program.phase);
       setActiveSession(state.activeSession);
-      setCoachingProfile(state.coachingProfile);
+      setCoachingProfile(fixedTrainingProfile(state.coachingProfile));
       setCoachingDecisions(state.coachingDecisions);
-      setSettings(state.settings);
+      setSettings({ ...DEFAULT_APP_SETTINGS });
       if (state.activeSession) {
         const workoutIndex = state.workouts.findIndex((item) => item.id === state.activeSession?.workoutId);
         if (workoutIndex >= 0) setSelected(workoutIndex);
@@ -260,9 +260,9 @@ export default function App() {
     setTrainingDays(state.program.trainingDays);
     setPhase(state.program.phase);
     setActiveSession(state.activeSession);
-    setCoachingProfile(state.coachingProfile);
+    setCoachingProfile(fixedTrainingProfile(state.coachingProfile));
     setCoachingDecisions(state.coachingDecisions);
-    setSettings(state.settings);
+    setSettings({ ...DEFAULT_APP_SETTINGS });
     const activeIndex = state.activeSession ? state.workouts.findIndex((item) => item.id === state.activeSession?.workoutId) : 0;
     setSelected(activeIndex >= 0 ? activeIndex : 0);
     setReplacementExerciseId(null);
@@ -274,7 +274,7 @@ export default function App() {
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} settings={settings} backupBusy={backupBusy} onDays={setTrainingDays} onProfile={setCoachingProfile} onSettings={setSettings} onApply={applyProgram} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
     </ScrollView>
   </SafeAreaView>;
 }

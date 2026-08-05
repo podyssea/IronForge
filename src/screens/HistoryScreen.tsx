@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { compareSessionExercises, exerciseVolume, formatDuration, groupRecordsByWeek } from "../domain/sessionJournal";
-import { displayExerciseWeight, displayWeight, exerciseWeightLabel, Exercise, isWorkingSet, progression, SessionRecord, WeightUnit, weightUnitLabel } from "../domain/training";
+import { displayExerciseWeight, displayWeight, exerciseWeightLabel, Exercise, isWorkingSet, SessionRecord, WeightUnit, weightUnitLabel } from "../domain/training";
 
 type HistoryScreenProps = {
   records: SessionRecord[];
@@ -16,14 +16,11 @@ export function HistoryScreen({ records, onUpdateNotes, onDelete, weightUnit, on
   const selected = records.find((record) => record.id === selectedId);
   if (selected) return <SessionDetail record={selected} records={records} weightUnit={weightUnit} onBack={() => setSelectedId(null)} onRepeat={() => onRepeat(selected)} onRepeatDeload={() => onRepeat(selected, true)} onNotes={(notes) => onUpdateNotes(selected.id, notes)} onDelete={() => Alert.alert("Delete workout?", "This removes the session from your journal and totals. Current program loads will not be changed.", [{ text: "Keep session", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => { onDelete(selected.id); setSelectedId(null); } }])} />;
 
-  const latestExercises = new Map<string, Exercise>();
-  records.filter((record) => !record.deload).forEach((record) => record.exercises.forEach((exercise) => { if (!latestExercises.has(exercise.id)) latestExercises.set(exercise.id, exercise); }));
   const weeklyGroups = groupRecordsByWeek(records);
   return <><Text style={styles.kicker}>WORKOUT JOURNAL</Text><Text style={styles.title}>History</Text>
     {records.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No workouts saved yet</Text><Text style={styles.emptyText}>Finish a workout and it will appear here with every set, your notes, and performance changes.</Text></View> : <>
       <View style={styles.historyStat}><Text style={styles.historyNumber}>{records.length}</Text><Text style={styles.historyLabel}>WORKOUTS COMPLETED</Text><Text style={styles.historyVolume}>{displayWeight(records.reduce((sum, record) => sum + record.volume, 0), weightUnit).toLocaleString()} {weightUnitLabel(weightUnit)} total volume</Text></View>
       {weeklyGroups.map((group) => <View key={group.key}><Text style={styles.sectionLabel}>{group.label}</Text>{group.records.map((record) => <Pressable key={record.id} onPress={() => setSelectedId(record.id)} style={styles.historyCard}><View style={styles.cardCopy}><Text style={styles.historyTitle}>{record.workoutTitle.split(" · ").pop()}</Text>{record.deload ? <Text style={styles.deloadTag}>DELOAD · 75%</Text> : null}<Text style={styles.historyDate}>{formatDate(record.completedAt)} · {record.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).length} exercises</Text>{record.notes ? <Text numberOfLines={1} style={styles.notePreview}>{record.notes}</Text> : null}</View><View style={styles.cardRight}><Text style={styles.cardVolume}>{displayWeight(record.volume, weightUnit).toLocaleString()}<Text style={styles.cardUnit}> {weightUnitLabel(weightUnit)}</Text></Text><Text style={styles.open}>OPEN →</Text></View></Pressable>)}</View>)}</>}
-    {latestExercises.size > 0 && <><Text style={styles.sectionLabel}>LATEST PERFORMANCE</Text>{Array.from(latestExercises.values()).map((exercise) => <View key={exercise.id} style={styles.performanceCard}><Text style={styles.performanceName}>{exercise.name}</Text><Text style={styles.performanceValue}>{displayExerciseWeight(exercise.lastWeight, exercise, weightUnit)} {exerciseWeightLabel(exercise, weightUnit)} × {exercise.lastReps}</Text><Text style={styles.performanceTip}>{progression(exercise, weightUnit)}</Text></View>)}</>}
   </>;
 }
 
@@ -61,7 +58,6 @@ const styles = StyleSheet.create({
   sectionLabel: { color: "#90988e", fontSize: 10, fontWeight: "900", letterSpacing: 1.2, marginTop: 26, marginBottom: 8 },
   historyCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 15, marginTop: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, cardCopy: { flex: 1, paddingRight: 10 }, historyTitle: { color: "#eff2ed", fontSize: 15, fontWeight: "800" }, historyDate: { color: "#858d83", fontSize: 11, marginTop: 5 }, notePreview: { color: "#aab3a7", fontSize: 10, fontStyle: "italic", marginTop: 6 }, cardRight: { alignItems: "flex-end" }, cardVolume: { color: "#d8ff38", fontSize: 17, fontWeight: "900" }, cardUnit: { color: "#9da59b", fontSize: 10 }, open: { color: "#818a7f", fontSize: 8, fontWeight: "900", marginTop: 7 },
   deloadTag: { alignSelf: "flex-start", color: "#15190f", backgroundColor: "#d8ff38", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: "900", letterSpacing: .7, marginTop: 7 },
-  performanceCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 15, marginTop: 8 }, performanceName: { color: "#f0f3ef", fontSize: 15, fontWeight: "800" }, performanceValue: { color: "#d8ff38", fontSize: 13, fontWeight: "800", marginTop: 5 }, performanceTip: { color: "#858d83", fontSize: 10, lineHeight: 14, marginTop: 8 },
   back: { alignSelf: "flex-start", marginTop: 22, paddingVertical: 6 }, backText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, detailDate: { color: "#91998f", fontSize: 11, marginTop: 7 },
   detailStats: { flexDirection: "row", gap: 7, marginTop: 17 }, stat: { flex: 1, backgroundColor: "#1a1f1a", borderRadius: 8, paddingVertical: 13, paddingHorizontal: 8 }, statValue: { color: "#f0f3ed", fontSize: 13, fontWeight: "900" }, statLabel: { color: "#788176", fontSize: 8, fontWeight: "900", marginTop: 4 },
   notes: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, marginTop: 14 }, notesLabel: { color: "#90988e", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, notesInput: { color: "#eef1eb", fontSize: 12, lineHeight: 18, minHeight: 58, textAlignVertical: "top", marginTop: 7 },

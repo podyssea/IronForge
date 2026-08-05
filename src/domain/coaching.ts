@@ -13,13 +13,22 @@ export type CoachingProfile = {
 
 export const DEFAULT_COACHING_PROFILE: CoachingProfile = {
   goal: "hypertrophy",
-  experience: "intermediate",
+  experience: "advanced",
   sessionMinutes: 60,
   availableEquipment: ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"],
   preferredExerciseIds: [],
   excludedExerciseIds: [],
   coachingStyle: "classic-physique",
 };
+
+export function fixedTrainingProfile(profile: CoachingProfile): CoachingProfile {
+  return {
+    ...profile,
+    experience: "advanced",
+    sessionMinutes: 60,
+    availableEquipment: ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"],
+  };
+}
 
 export type CoachingRecommendation = {
   id: string;
