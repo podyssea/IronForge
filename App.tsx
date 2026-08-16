@@ -1,10 +1,10 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, exercisesMissingLoadingType, initialFourDaySplit, isSessionComplete, LoadingType, repeatSessionFromRecord, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
+import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, repeatSessionFromRecord, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram } from "./src/domain/programGenerator";
-import { deleteSessionRecord, recentTwoWeekRecords } from "./src/domain/sessionJournal";
+import { deleteSessionRecord, recentTwoWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
@@ -83,10 +83,15 @@ export default function App() {
   }
 
   function setLoadingType(exerciseId: string, loadingType: LoadingType) {
-    setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
+    const targetWorkoutId = activeSession?.workoutId ?? workout.id;
+    setWorkouts((current) => current.map((item) => item.id !== targetWorkoutId ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, loadingType } : exercise),
     }));
+    setActiveSession((current) => !current ? current : {
+      ...current,
+      exercises: current.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, loadingType } : exercise),
+    });
   }
 
   function addExerciseSet(exerciseId: string) {
@@ -170,6 +175,10 @@ export default function App() {
     setRecords((current) => current.map((record) => record.id === recordId ? { ...record, notes } : record));
   }
 
+  function updateRecordExerciseName(recordId: string, exerciseId: string, name: string) {
+    setRecords((current) => renameSessionExercise(current, recordId, exerciseId, name));
+  }
+
   function decideRecommendation(recommendation: CoachingRecommendation, selectedWeight: number, rejected = false) {
     const outcome: CoachingDecision["outcome"] = rejected ? "rejected" : selectedWeight === recommendation.suggestedWeight ? "accepted" : "modified";
     if (!rejected) setWorkouts((current) => applyCoachingRecommendation(current, recommendation, selectedWeight));
@@ -177,10 +186,6 @@ export default function App() {
   }
 
   function beginWorkout() {
-    const unconfigured = exercisesMissingLoadingType(workout);
-    if (unconfigured.length) {
-      return Alert.alert("Select loading type", `Choose pin loaded or plate loaded for every exercise before starting.\n\nMissing: ${unconfigured.map((exercise) => exercise.name).join(", ")}`);
-    }
     const deload = deloadWorkoutIds.has(workout.id);
     setActiveSession(deload ? startDeloadSession(workout) : startActiveSession(workout));
     if (deload) setDeloadWorkoutIds((current) => {
@@ -205,10 +210,6 @@ export default function App() {
       return Alert.alert("Workout in progress", "Finish or cancel your active workout before repeating a saved session.");
     }
     const repeated = repeatSessionFromRecord(record, records, new Date(), workouts, deload);
-    const unconfigured = repeated.exercises.filter((exercise) => !exercise.loadingType);
-    if (unconfigured.length) {
-      return Alert.alert("Loading type required", `Configure pin loaded or plate loaded for these exercises in your current program before repeating this workout:\n\n${unconfigured.map((exercise) => exercise.name).join(", ")}`);
-    }
     const workoutIndex = workouts.findIndex((item) => item.id === repeated.workoutId);
     if (workoutIndex >= 0) setSelected(workoutIndex);
     setActiveSession(repeated);
@@ -274,7 +275,7 @@ export default function App() {
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
     </ScrollView>
   </SafeAreaView>;
 }
