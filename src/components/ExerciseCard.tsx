@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { displayExerciseWeight, exerciseWeightLabel, Exercise, isWorkingSet, loadIncrement, LoadingType, progression, setValidationError, SetLog, WeightUnit } from "../domain/training";
+import { displayExerciseWeight, exerciseWeightLabel, Exercise, isWorkingSet, LoadingType, progression, setValidationError, SetLog, storedExerciseWeight, WeightUnit } from "../domain/training";
 import { NumberOption, NumberPicker } from "./NumberPicker";
 
 type ExerciseCardProps = {
@@ -14,10 +14,13 @@ type ExerciseCardProps = {
   onAddSet?: (id: string) => void;
   onRemoveSet?: (id: string) => void;
   onSetCompleted?: (exercise: Exercise) => void;
+  expanded: boolean;
+  highlighted?: boolean;
+  onToggleExpanded: (id: string) => void;
+  onExerciseCompleted?: (id: string) => void;
 };
 
-export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted }: ExerciseCardProps) {
-  const [expanded, setExpanded] = useState(number === 1);
+export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted }: ExerciseCardProps) {
   const isComplete = exercise.sets.every((set) => set.completed);
   const toggleExercise = () => {
     if (!isComplete) {
@@ -25,6 +28,7 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
       if (invalid) return Alert.alert("Check set values", setValidationError(invalid) ?? "Enter valid values before completing this exercise.");
     }
     exercise.sets.forEach((_, index) => onChange(exercise.id, index, { completed: !isComplete }));
+    if (!isComplete) onExerciseCompleted?.(exercise.id);
   };
   const updateSetValue = (set: SetLog, index: number, changes: Partial<SetLog>) => {
     const next = { ...set, ...changes };
@@ -35,16 +39,17 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
     if (!set.completed && error) return Alert.alert("Set not complete", error);
     onChange(exercise.id, index, { completed: !set.completed });
     if (!set.completed) onSetCompleted?.(exercise);
+    if (!set.completed && exercise.sets.every((item, itemIndex) => itemIndex === index || item.completed)) onExerciseCompleted?.(exercise.id);
   };
 
   const warmupCount = Math.max(0, exercise.sets.length - 2);
   const weightOptions = useMemo(() => buildWeightOptions(exercise, weightUnit), [exercise.lastWeight, exercise.loadIncrement, exercise.loadingType, weightUnit]);
-  return <View style={styles.card}>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded((current) => !current)} style={[styles.exerciseHeader, !expanded && styles.exerciseHeaderCollapsed]}><View style={styles.headerMain}><Text style={styles.exerciseNumber}>EXERCISE {String(number).padStart(2, "0")}</Text><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseMeta}>{warmupCount ? `${warmupCount} warm-up · ` : ""}2 working · {exercise.repRange[0]}–{exercise.repRange[1]} reps</Text></View><View style={styles.previous}><Text style={styles.previousLabel}>{exercise.loadingType === "plate-loaded" ? "WORKING LOAD / SIDE" : "WORKING LOAD"}</Text><Text style={styles.previousValue}>{displayExerciseWeight(exercise.lastWeight, exercise, weightUnit)} <Text style={styles.unit}>{exerciseWeightLabel(exercise, weightUnit)}</Text> × {exercise.lastReps}</Text><Text style={styles.expand}>{expanded ? "COLLAPSE ︿" : "EXPAND ﹀"}</Text></View></Pressable>
+  return <View style={[styles.card, highlighted && styles.cardHighlighted, isComplete && styles.cardComplete]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => onToggleExpanded(exercise.id)} style={[styles.exerciseHeader, !expanded && styles.exerciseHeaderCollapsed]}><View style={styles.headerMain}><View style={styles.exerciseLabelRow}><Text style={styles.exerciseNumber}>EXERCISE {String(number).padStart(2, "0")}</Text>{isComplete ? <Text style={styles.finishedBadge}>✓ FINISHED</Text> : highlighted ? <Text style={styles.nextBadge}>NEXT UP</Text> : null}</View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseMeta}>{warmupCount ? `${warmupCount} warm-up · ` : ""}2 working · {exercise.repRange[0]}–{exercise.repRange[1]} reps</Text></View><View style={styles.previous}><Text style={styles.previousLabel}>{exercise.loadingType === "plate-loaded" ? "WORKING LOAD / SIDE" : "WORKING LOAD"}</Text><Text style={styles.previousValue}>{displayExerciseWeight(exercise.lastWeight, exercise, weightUnit)} <Text style={styles.unit}>{exerciseWeightLabel(exercise, weightUnit)}</Text> × {exercise.lastReps}</Text><Text style={styles.expand}>{expanded ? "COLLAPSE ︿" : "EXPAND ﹀"}</Text></View></Pressable>
     {expanded && <><View style={styles.tableHead}><Text style={[styles.head, styles.setCol]}>SET</Text><Text style={[styles.head, styles.inputCol]}>{exerciseWeightLabel(exercise, weightUnit).toUpperCase()}</Text><Text style={[styles.head, styles.inputCol]}>REPS</Text><Text style={[styles.head, styles.doneCol]}>DONE</Text></View>
     {exercise.sets.map((set, index) => { const error = setValidationError(set); const working = isWorkingSet(exercise, index); return <View key={index}><View style={[styles.setRow, set.completed && styles.setRowDone, error && styles.setRowInvalid]}><View style={styles.setCol}><Text style={styles.setNumber}>{index + 1}</Text><Text style={[styles.setRole, working && styles.setRoleWorking]}>{working ? "WORK" : "WARM"}</Text></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} weight (${exerciseWeightLabel(exercise, weightUnit)})`} value={set.weight} options={weightOptions} disabled={!editable} onChange={(weight) => updateSetValue(set, index, { weight })} /></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} set ${index + 1} reps`} value={set.reps} options={REP_OPTIONS} disabled={!editable} onChange={(reps) => updateSetValue(set, index, { reps })} /></View><Pressable disabled={!editable} accessibilityRole="checkbox" accessibilityState={{ checked: set.completed, disabled: !editable }} accessibilityLabel={`${exercise.name}, ${working ? "working" : "warm-up"} set ${index + 1}`} onPress={() => toggleSet(set, index)} style={[styles.setToggle, set.completed && styles.setToggleDone, !editable && styles.setToggleDisabled]}><Text style={[styles.setToggleText, set.completed && styles.setToggleTextDone]}>{set.completed ? "✓" : ""}</Text></Pressable></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
     {editable && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isComplete }} onPress={toggleExercise} style={[styles.exerciseToggle, isComplete && styles.exerciseToggleDone]}><Text style={[styles.exerciseToggleText, isComplete && styles.exerciseToggleTextDone]}>{isComplete ? "✓ EXERCISE COMPLETE" : "MARK EXERCISE COMPLETE"}</Text></Pressable>}
-    {!editable && onLoadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>MACHINE LOADING</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={[styles.loadingChoice, exercise.loadingType === item && styles.loadingChoiceActive]}><Text style={[styles.loadingChoiceText, exercise.loadingType === item && styles.loadingChoiceTextActive]}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED · PER SIDE"}</Text></Pressable>)}</View></View>}
+    {onLoadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>{exercise.loadingType ? "MACHINE LOADING" : "SELECT MACHINE LOADING · OPTIONAL BEFORE START"}</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={[styles.loadingChoice, exercise.loadingType === item && styles.loadingChoiceActive]}><Text style={[styles.loadingChoiceText, exercise.loadingType === item && styles.loadingChoiceTextActive]}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED · PER SIDE"}</Text></Pressable>)}</View></View>}
     {!editable && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 8 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
     {!editable && onReplace && <Pressable onPress={() => onReplace(exercise.id)} style={styles.replace}><Text style={styles.replaceText}>FIND A SUBSTITUTE</Text></Pressable>}
     {exercise.selectionReason && <Text style={styles.reason}>COACH: {exercise.selectionReason}</Text>}
@@ -55,17 +60,17 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
 const REP_OPTIONS: NumberOption[] = Array.from({ length: 50 }, (_, index) => ({ value: index + 1, label: String(index + 1) }));
 
 function buildWeightOptions(exercise: Exercise, unit: WeightUnit): NumberOption[] {
-  const step = loadIncrement(exercise);
-  const maximum = Math.max(exercise.loadingType === "plate-loaded" ? 600 : 300, exercise.lastWeight + step * 20);
-  const values = Array.from({ length: Math.ceil(maximum / step) + 1 }, (_, index) => Math.round(index * step * 100) / 100);
+  const maximumStored = Math.max(exercise.loadingType === "plate-loaded" ? 600 : 300, exercise.lastWeight + storedExerciseWeight(20, exercise, unit));
+  const maximumDisplayed = Math.ceil(displayExerciseWeight(maximumStored, exercise, unit));
+  const values = Array.from({ length: maximumDisplayed + 1 }, (_, displayed) => storedExerciseWeight(displayed, exercise, unit));
   exercise.sets.forEach((set) => { if (!values.includes(set.weight)) values.push(set.weight); });
   return values.sort((a, b) => a - b).map((value) => ({ value, label: String(displayExerciseWeight(value, exercise, unit)) }));
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: "#1a1f1a", borderRadius: 10, padding: 15, marginTop: 14 },
+  card: { backgroundColor: "#1a1f1a", borderRadius: 10, borderWidth: 1, borderColor: "transparent", padding: 15, marginTop: 14 }, cardHighlighted: { borderColor: "#d8ff38", backgroundColor: "#1d2419" }, cardComplete: { borderColor: "#35402f", opacity: .86 },
   exerciseHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 }, exerciseHeaderCollapsed: { marginBottom: 0 }, headerMain: { flex: 1, paddingRight: 8 },
-  exerciseNumber: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
+  exerciseLabelRow: { flexDirection: "row", alignItems: "center", gap: 7 }, exerciseNumber: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 }, nextBadge: { color: "#15190f", backgroundColor: "#d8ff38", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 7, fontWeight: "900", letterSpacing: .6 }, finishedBadge: { color: "#d8ff38", backgroundColor: "#293322", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 7, fontWeight: "900", letterSpacing: .6 },
   exerciseName: { color: "#f3f5f1", fontSize: 17, fontWeight: "800", marginTop: 3 },
   exerciseMeta: { color: "#8b9489", fontSize: 11, marginTop: 3 },
   previous: { alignItems: "flex-end" }, previousLabel: { color: "#717971", fontSize: 8, fontWeight: "800", letterSpacing: .8 },

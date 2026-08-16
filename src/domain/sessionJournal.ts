@@ -40,6 +40,15 @@ export function deleteSessionRecord(records: SessionRecord[], recordId: string):
   return records.filter((record) => record.id !== recordId);
 }
 
+export function renameSessionExercise(records: SessionRecord[], recordId: string, exerciseId: string, name: string): SessionRecord[] {
+  const trimmed = name.trim();
+  if (!trimmed) return records;
+  return records.map((record) => record.id !== recordId ? record : {
+    ...record,
+    exercises: record.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, name: trimmed } : exercise),
+  });
+}
+
 export function recentTwoWeekRecords(records: SessionRecord[], now = new Date()): SessionRecord[] {
   const currentWeek = startOfWeek(now);
   const previousWeek = new Date(currentWeek);

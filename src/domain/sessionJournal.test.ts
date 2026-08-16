@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareSessionExercises, deleteSessionRecord, exerciseVolume, formatDuration, groupRecordsByWeek, recentTwoWeekRecords } from "./sessionJournal";
+import { compareSessionExercises, deleteSessionRecord, exerciseVolume, formatDuration, groupRecordsByWeek, recentTwoWeekRecords, renameSessionExercise } from "./sessionJournal";
 import { completeActiveSession, initialFourDaySplit, startActiveSession } from "./training";
 
 function completedRecord(weight: number, reps: number, start: string, finish: string, notes = "") {
@@ -40,6 +40,14 @@ describe("workout journal", () => {
     const first = completedRecord(40, 8, "2026-01-01T10:00:00.000Z", "2026-01-01T11:00:00.000Z");
     const second = completedRecord(42.5, 8, "2026-01-08T10:00:00.000Z", "2026-01-08T11:00:00.000Z");
     expect(deleteSessionRecord([second, first], first.id)).toEqual([second]);
+  });
+
+  it("renames an exercise only in the selected journal entry", () => {
+    const first = completedRecord(40, 8, "2026-01-01T10:00:00.000Z", "2026-01-01T11:00:00.000Z");
+    const second = completedRecord(42.5, 8, "2026-01-08T10:00:00.000Z", "2026-01-08T11:00:00.000Z");
+    const renamed = renameSessionExercise([second, first], first.id, "incline-smith", "  Corrected Press  ");
+    expect(renamed[1].exercises[0].name).toBe("Corrected Press");
+    expect(renamed[0].exercises[0].name).toBe("Incline Smith Press");
   });
 
   it("formats unavailable legacy duration", () => {
