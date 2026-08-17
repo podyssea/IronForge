@@ -49,28 +49,35 @@ export function renameSessionExercise(records: SessionRecord[], recordId: string
   });
 }
 
-export function recentTwoWeekRecords(records: SessionRecord[], now = new Date()): SessionRecord[] {
+export function recentSixWeekRecords(records: SessionRecord[], now = new Date()): SessionRecord[] {
   const currentWeek = startOfWeek(now);
-  const previousWeek = new Date(currentWeek);
-  previousWeek.setDate(previousWeek.getDate() - 7);
+  const oldestRetainedWeek = new Date(currentWeek);
+  oldestRetainedWeek.setDate(oldestRetainedWeek.getDate() - 35);
   return records.filter((record) => {
     const completedAt = new Date(record.completedAt);
-    return !Number.isNaN(completedAt.getTime()) && completedAt >= previousWeek && completedAt <= now;
+    return !Number.isNaN(completedAt.getTime()) && completedAt >= oldestRetainedWeek && completedAt <= now;
   });
 }
 
 export function groupRecordsByWeek(records: SessionRecord[], now = new Date()): { key: string; label: string; records: SessionRecord[] }[] {
   const currentWeek = startOfWeek(now);
   const groups = new Map<number, SessionRecord[]>();
-  recentTwoWeekRecords(records, now).forEach((record) => {
+  recentSixWeekRecords(records, now).forEach((record) => {
     const start = startOfWeek(new Date(record.completedAt)).getTime();
     groups.set(start, [...(groups.get(start) ?? []), record]);
   });
   return [...groups.entries()].sort(([a], [b]) => b - a).map(([timestamp, grouped]) => ({
     key: String(timestamp),
-    label: timestamp === currentWeek.getTime() ? "THIS WEEK" : "LAST WEEK",
+    label: weekLabel(timestamp, currentWeek.getTime()),
     records: grouped,
   }));
+}
+
+function weekLabel(timestamp: number, currentWeekTimestamp: number): string {
+  const weeksAgo = Math.round((currentWeekTimestamp - timestamp) / (7 * 24 * 60 * 60 * 1000));
+  if (weeksAgo === 0) return "THIS WEEK";
+  if (weeksAgo === 1) return "LAST WEEK";
+  return `${weeksAgo} WEEKS AGO`;
 }
 
 function startOfWeek(value: Date): Date {

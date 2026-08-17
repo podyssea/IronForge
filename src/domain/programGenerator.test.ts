@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "./coaching";
 import { getExerciseDefinition, MuscleGroup } from "./exerciseLibrary";
-import { generateAdaptiveProgram } from "./programGenerator";
+import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./programGenerator";
 import { initialFourDaySplit } from "./training";
 
 describe("adaptive program generator", () => {
@@ -83,5 +83,24 @@ describe("adaptive program generator", () => {
   it("keeps balanced generation available when explicitly selected", () => {
     const profile: CoachingProfile = { ...DEFAULT_COACHING_PROFILE, coachingStyle: "balanced" };
     expect(generateAdaptiveProgram(4, profile, [])[0].title).toBe("Day 1 · Upper A");
+  });
+
+  it("rotates isolation exercises while preserving every compound", () => {
+    const workouts = generateAdaptiveProgram(4, DEFAULT_COACHING_PROFILE, []);
+    const compounds = workouts.flatMap((workout) => workout.exercises.filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "compound").map((exercise) => exercise.id));
+    const originalIsolations = new Set(workouts.flatMap((workout) => workout.exercises.filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "isolation").map((exercise) => exercise.id)));
+    const rotated = rotateIsolationExercises(workouts, DEFAULT_COACHING_PROFILE);
+    const rotatedCompounds = rotated.flatMap((workout) => workout.exercises.filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "compound").map((exercise) => exercise.id));
+    const rotatedIsolations = rotated.flatMap((workout) => workout.exercises.filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "isolation").map((exercise) => exercise.id));
+    expect(rotatedCompounds).toEqual(compounds);
+    expect(rotatedIsolations.some((id) => !originalIsolations.has(id))).toBe(true);
+    expect(rotated.map((workout) => workout.exercises.length)).toEqual(workouts.map((workout) => workout.exercises.length));
+  });
+
+  it("marks a routine due after six full weeks", () => {
+    const startedAt = "2026-01-01T10:00:00.000Z";
+    expect(isRoutineChangeDue(startedAt, new Date("2026-02-12T09:59:59.000Z"))).toBe(false);
+    expect(isRoutineChangeDue(startedAt, new Date("2026-02-12T10:00:00.000Z"))).toBe(true);
+    expect(routineWeek(startedAt, new Date("2026-01-29T10:00:00.000Z"))).toBe(5);
   });
 });

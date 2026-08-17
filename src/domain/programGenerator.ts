@@ -1,6 +1,6 @@
 import { CoachingProfile } from "./coaching";
 import { EXERCISE_LIBRARY, ExerciseDefinition, ExperienceLevel, MovementPattern, TrainingStyle } from "./exerciseLibrary";
-import { Exercise, Workout } from "./training";
+import { Exercise, SessionRecord, Workout } from "./training";
 
 type DayTemplate = { name: string; focus: string; patterns: MovementPattern[] };
 
@@ -78,6 +78,64 @@ export function generateAdaptiveProgram(days: number, profile: CoachingProfile, 
       exercises,
     };
   });
+}
+
+export function rotateIsolationExercises(workouts: Workout[], profile: CoachingProfile, records: SessionRecord[] = []): Workout[] {
+  const currentIsolationIds = new Set(workouts.flatMap((workout) => workout.exercises.filter((exercise) => definitionFor(exercise)?.modality === "isolation").map((exercise) => exercise.id)));
+  const known = new Map<string, Exercise>();
+  [...records].sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime()).forEach((record) => record.exercises.forEach((exercise) => known.set(exercise.id, exercise)));
+  workouts.flatMap((workout) => workout.exercises).forEach((exercise) => known.set(exercise.id, exercise));
+
+  return workouts.map((workout, dayIndex) => {
+    const chosen = new Set(workout.exercises.filter((exercise) => definitionFor(exercise)?.modality !== "isolation").map((exercise) => exercise.id));
+    return {
+      ...workout,
+      focus: `${workout.focus.replace(/ · Refreshed isolation selection$/, "")} · Refreshed isolation selection`,
+      exercises: workout.exercises.map((exercise, slotIndex) => {
+        const currentDefinition = definitionFor(exercise);
+        if (!currentDefinition || currentDefinition.modality !== "isolation") return exercise;
+        const replacement = selectRotatedIsolation(currentDefinition, profile, chosen, currentIsolationIds, dayIndex + slotIndex);
+        if (!replacement) return exercise;
+        chosen.add(replacement.id);
+        return {
+          ...buildExercise(replacement, profile.goal, known.get(replacement.id), profile.availableEquipment, profile.coachingStyle !== "balanced"),
+          selectionReason: `Six-week rotation: ${replacement.movementPattern.replaceAll("-", " ")} variation for ${replacement.primaryMuscles.join(" and ")}; compound movements remain unchanged.`,
+        };
+      }),
+    };
+  });
+}
+
+export function isRoutineChangeDue(routineStartedAt: string, now = new Date()): boolean {
+  const startedAt = new Date(routineStartedAt);
+  return !Number.isNaN(startedAt.getTime()) && now.getTime() - startedAt.getTime() >= 42 * 24 * 60 * 60 * 1000;
+}
+
+export function routineWeek(routineStartedAt: string, now = new Date()): number {
+  const startedAt = new Date(routineStartedAt);
+  if (Number.isNaN(startedAt.getTime())) return 1;
+  return Math.max(1, Math.min(6, Math.floor((now.getTime() - startedAt.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1));
+}
+
+function selectRotatedIsolation(current: ExerciseDefinition, profile: CoachingProfile, chosen: Set<string>, currentIsolationIds: Set<string>, rotation: number): ExerciseDefinition | undefined {
+  const eligible = (allowExistingRoutineExercise: boolean) => EXERCISE_LIBRARY.filter((exercise) => exercise.modality === "isolation"
+    && exercise.id !== current.id
+    && !chosen.has(exercise.id)
+    && (allowExistingRoutineExercise || !currentIsolationIds.has(exercise.id))
+    && exercise.movementPattern === current.movementPattern
+    && exercise.primaryMuscles.some((muscle) => current.primaryMuscles.includes(muscle))
+    && !profile.excludedExerciseIds.includes(exercise.id)
+    && exercise.equipment.some((equipment) => profile.availableEquipment.includes(equipment))
+    && difficultyRank[exercise.difficulty] <= difficultyRank[profile.experience]
+    && exercise.suitableFor.includes(profile.goal));
+  const pool = eligible(false);
+  const fallback = pool.length ? pool : eligible(true);
+  const ranked = fallback.slice().sort((a, b) => profile.coachingStyle !== "balanced" ? (b.classicPhysiquePriority ?? 0) - (a.classicPhysiquePriority ?? 0) : a.name.localeCompare(b.name));
+  return ranked.length ? ranked[rotation % ranked.length] : undefined;
+}
+
+function definitionFor(exercise: Pick<Exercise, "id">): ExerciseDefinition | undefined {
+  return EXERCISE_LIBRARY.find((definition) => definition.id === exercise.id);
 }
 
 function selectExercise(pattern: MovementPattern, profile: CoachingProfile, chosen: Set<string>, rotation: number, classicPhysique: boolean): ExerciseDefinition | undefined {

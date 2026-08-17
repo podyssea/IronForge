@@ -13,14 +13,17 @@ type ProgramScreenProps = {
   trainingDays: number;
   profile: CoachingProfile;
   backupBusy: boolean;
+  currentRoutineWeek: number;
+  routineChangeDeferred: boolean;
   onDays: (days: number) => void;
   onProfile: (profile: CoachingProfile) => void;
   onApply: () => void;
   onExportBackup: () => void;
   onImportBackup: () => void;
+  onRotateRoutine: () => void;
 };
 
-export function ProgramScreen({ trainingDays, profile, backupBusy, onDays, onProfile, onApply, onExportBackup, onImportBackup }: ProgramScreenProps) {
+export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutineWeek, routineChangeDeferred, onDays, onProfile, onApply, onExportBackup, onImportBackup, onRotateRoutine }: ProgramScreenProps) {
   const update = (changes: Partial<CoachingProfile>) => onProfile({ ...profile, ...changes });
   const estimatedExercises = Math.max(4, Math.min(9, Math.floor((profile.sessionMinutes - 8) / 7)));
 
@@ -32,6 +35,12 @@ export function ProgramScreen({ trainingDays, profile, backupBusy, onDays, onPro
     <Text style={styles.builderLabel}>TRAINING DAYS</Text><View style={styles.choiceRow}>{[2, 3, 4, 5].map((days) => <Pressable key={days} onPress={() => onDays(days)} style={[styles.dayChoice, trainingDays === days && styles.dayChoiceActive]}><Text style={[styles.dayChoiceText, trainingDays === days && styles.dayChoiceTextActive]}>{days}</Text><Text style={[styles.dayChoiceCaption, trainingDays === days && styles.dayChoiceTextActive]}>DAYS</Text></Pressable>)}</View>
     <View style={styles.preview}><Text style={styles.previewTitle}>{trainingDays}-day {profile.coachingStyle !== "balanced" ? "Classic Physique" : profile.goal.replaceAll("-", " ")} plan</Text><Text style={styles.previewText}>Approximately {estimatedExercises} exercises per 60-minute session. Advanced exercise options and all equipment are enabled by default.{profile.coachingStyle !== "balanced" ? " Stable compounds, complementary angles and targeted isolation work receive priority." : ""}</Text></View>
     <Pressable style={styles.finish} onPress={onApply}><Text style={styles.finishText}>GENERATE MY PROGRAM</Text><Text style={styles.finishArrow}>→</Text></Pressable>
+    <Text style={styles.builderLabel}>SIX-WEEK ROUTINE</Text>
+    <View style={styles.routineCard}>
+      <View style={styles.routineHeader}><Text style={styles.routineTitle}>WEEK {currentRoutineWeek} OF 6</Text><Text style={styles.routineBadge}>{routineChangeDeferred ? "READY" : "ACTIVE"}</Text></View>
+      <Text style={styles.routineText}>{routineChangeDeferred ? "You kept your current routine. Refresh it whenever you are ready." : "After six weeks, Ki will offer a refreshed routine that keeps your compound exercises and rotates isolation work."}</Text>
+      <Pressable onPress={onRotateRoutine} style={styles.routineAction}><Text style={styles.routineActionText}>REFRESH ROUTINE</Text></Pressable>
+    </View>
     <Text style={styles.builderLabel}>DATA & BACKUP</Text>
     <View style={styles.backupCard}>
       <Text style={styles.backupTitle}>Keep your progress safe</Text>
@@ -58,6 +67,7 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 }, chip: { backgroundColor: "#1a1f1a", borderRadius: 15, paddingHorizontal: 11, paddingVertical: 8, borderWidth: 1, borderColor: "#303730" }, chipActive: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, chipText: { color: "#9da59b", fontSize: 8, fontWeight: "900" }, chipTextActive: { color: "#15200e" },
   preview: { backgroundColor: "#1a1f1a", borderLeftWidth: 3, borderLeftColor: "#d8ff38", borderRadius: 7, padding: 14, marginTop: 20 }, previewTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800", textTransform: "capitalize" }, previewText: { color: "#8c958a", fontSize: 11, lineHeight: 16, marginTop: 5 },
   finish: { height: 58, borderRadius: 9, backgroundColor: "#d8ff38", marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }, finishText: { color: "#15190f", fontWeight: "900", fontSize: 12, letterSpacing: .8 }, finishArrow: { color: "#15190f", fontSize: 22, fontWeight: "700" },
+  routineCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, routineHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, routineTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "900" }, routineBadge: { color: "#d8ff38", fontSize: 8, fontWeight: "900", letterSpacing: 1, borderWidth: 1, borderColor: "#66762c", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 }, routineText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 8 }, routineAction: { minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#d8ff38", alignItems: "center", justifyContent: "center", marginTop: 15 }, routineActionText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
   backupCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, backupTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800" }, backupText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 6 }, backupActions: { flexDirection: "row", gap: 8, marginTop: 15 }, backupPrimary: { flex: 1, minHeight: 44, borderRadius: 7, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center" }, backupPrimaryText: { color: "#15190f", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, backupSecondary: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#626b60", alignItems: "center", justifyContent: "center" }, backupSecondaryText: { color: "#e9ede6", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, buttonMuted: { opacity: .55 },
   settingCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, gap: 9 }, settingName: { color: "#8d958c", fontSize: 8, fontWeight: "900", letterSpacing: .8, marginTop: 4 },
 });

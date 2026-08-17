@@ -22,13 +22,12 @@ export function ExerciseLibraryScreen({ replacementForId, onSelect, onCancelRepl
   const source = replacementForId ? getExerciseDefinition(replacementForId) : undefined;
   const results = useMemo(() => EXERCISE_LIBRARY.filter((exercise) => exercise.id !== replacementForId
     && !excludedIds.includes(exercise.id)
-    && (!source || exercise.movementPattern === source.movementPattern)
     && (!search.trim() || exercise.name.toLowerCase().includes(search.trim().toLowerCase()))
     && (!equipment || exercise.equipment.includes(equipment))
-    && (!muscle || exercise.primaryMuscles.includes(muscle))), [equipment, excludedIds, muscle, replacementForId, search, source]);
+    && (!muscle || exercise.primaryMuscles.includes(muscle))), [equipment, excludedIds, muscle, replacementForId, search]);
 
-  return <><Text style={styles.kicker}>{source ? "EXERCISE SUBSTITUTION" : "EXERCISE CATALOG"}</Text><Text style={styles.title}>{source ? `Replace ${source.name}` : "Library"}</Text>
-    {source && <View style={styles.notice}><Text style={styles.noticeTitle}>MATCHED MOVEMENT</Text><Text style={styles.noticeText}>Showing {source.movementPattern.replaceAll("-", " ")} alternatives. Your current sets and rep range will be retained.</Text></View>}
+  return <><Text style={styles.kicker}>{source ? "REPLACE EXERCISE" : "EXERCISE CATALOG"}</Text><Text style={styles.title}>{source ? `Replace ${source.name}` : "Library"}</Text>
+    {source && <View style={styles.notice}><Text style={styles.noticeTitle}>FULL EXERCISE LIBRARY</Text><Text style={styles.noticeText}>Choose any exercise. Use search, equipment, and muscle filters to find the movement you want. Your current sets and rep range will be retained.</Text></View>}
     <TextInput value={search} onChangeText={setSearch} placeholder="Search exercises" placeholderTextColor="#687067" style={styles.search} autoCapitalize="none" autoCorrect={false} />
     <Text style={styles.filterLabel}>EQUIPMENT</Text><View style={styles.filters}><FilterChip label="ALL" active={!equipment} onPress={() => setEquipment(null)} />{EQUIPMENT_FILTERS.map((item) => <FilterChip key={item} label={item.replaceAll("-", " ")} active={equipment === item} onPress={() => setEquipment(item)} />)}</View>
     <Text style={styles.filterLabel}>PRIMARY MUSCLE</Text><View style={styles.filters}><FilterChip label="ALL" active={!muscle} onPress={() => setMuscle(null)} />{MUSCLE_FILTERS.map((item) => <FilterChip key={item} label={item.replaceAll("-", " ")} active={muscle === item} onPress={() => setMuscle(item)} />)}</View>
