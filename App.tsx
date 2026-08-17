@@ -1,10 +1,10 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, repeatSessionFromRecord, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
-import { generateAdaptiveProgram } from "./src/domain/programGenerator";
-import { deleteSessionRecord, recentTwoWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
+import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./src/domain/programGenerator";
+import { deleteSessionRecord, recentSixWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
@@ -23,6 +23,8 @@ export default function App() {
   const [view, setView] = useState<AppView>("log");
   const [trainingDays, setTrainingDays] = useState(4);
   const [phase, setPhase] = useState<TrainingPhase>("hypertrophy");
+  const [routineStartedAt, setRoutineStartedAt] = useState(() => new Date().toISOString());
+  const [routineChangeDeferred, setRoutineChangeDeferred] = useState(false);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [coachingProfile, setCoachingProfile] = useState<CoachingProfile>(DEFAULT_COACHING_PROFILE);
   const [coachingDecisions, setCoachingDecisions] = useState<CoachingDecision[]>([]);
@@ -32,13 +34,16 @@ export default function App() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [deloadWorkoutIds, setDeloadWorkoutIds] = useState<Set<string>>(() => new Set());
+  const routinePromptShown = useRef(false);
 
   useEffect(() => {
     loadAppState().then((state) => {
       setWorkouts(state.workouts);
-      setRecords(recentTwoWeekRecords(state.records));
+      setRecords(recentSixWeekRecords(state.records));
       setTrainingDays(state.program.trainingDays);
       setPhase(state.program.phase);
+      setRoutineStartedAt(state.program.routineStartedAt);
+      setRoutineChangeDeferred(state.program.routineChangeDeferred);
       setActiveSession(state.activeSession);
       setCoachingProfile(fixedTrainingProfile(state.coachingProfile));
       setCoachingDecisions(state.coachingDecisions);
@@ -56,14 +61,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!loaded || activeSession || routineChangeDeferred || routinePromptShown.current || !isRoutineChangeDue(routineStartedAt)) return;
+    routinePromptShown.current = true;
+    Alert.alert(
+      "Six-week routine complete",
+      "You have completed a full training block. Keep your compound movements and rotate the isolation exercises to introduce a fresh stimulus?",
+      [
+        { text: "Keep current", style: "cancel", onPress: () => setRoutineChangeDeferred(true) },
+        { text: "Restructure", onPress: rotateRoutine },
+      ],
+    );
+  }, [activeSession, loaded, routineChangeDeferred, routineStartedAt]);
+
+  useEffect(() => {
     if (!loaded) return;
-    saveAppState({ workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile, coachingDecisions, settings })
+    saveAppState({ workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings })
       .then(() => setStorageError(null))
       .catch((error: unknown) => {
         console.warn("Ki: unable to save app data.", error);
         setStorageError("Changes could not be saved. Check available device storage.");
       });
-  }, [workouts, records, trainingDays, phase, activeSession, coachingProfile, coachingDecisions, settings, loaded]);
+  }, [workouts, records, trainingDays, phase, routineStartedAt, routineChangeDeferred, activeSession, coachingProfile, coachingDecisions, settings, loaded]);
 
   const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
   const workout = workouts[selectedWorkoutIndex];
@@ -130,7 +148,7 @@ export default function App() {
   function saveFinishedWorkout() {
     if (!activeSession) return;
     const record = completeActiveSession(activeSession);
-    setRecords((current) => recentTwoWeekRecords([record, ...current]));
+    setRecords((current) => recentSixWeekRecords([record, ...current]));
     setWorkouts((current) => applySessionPerformance(current, activeSession));
     setActiveSession(null);
     Alert.alert("Workout saved", `${completedSets} sets logged · ${displayWeight(record.volume, settings.weightUnit).toLocaleString()} ${weightUnitLabel(settings.weightUnit)} volume`);
@@ -144,9 +162,33 @@ export default function App() {
     }
     setWorkouts((current) => generateAdaptiveProgram(trainingDays, coachingProfile, current));
     setPhase(coachingProfile.goal === "strength" ? "strength" : "hypertrophy");
+    setRoutineStartedAt(new Date().toISOString());
+    setRoutineChangeDeferred(false);
+    routinePromptShown.current = false;
     setSelected(0);
     setView("log");
     Alert.alert("Program generated", `Your ${trainingDays}-day ${coachingProfile.goal.replaceAll("-", " ")} plan is ready. It uses your equipment, experience, and ${coachingProfile.sessionMinutes}-minute session target.`);
+  }
+
+  function rotateRoutine() {
+    if (activeSession) {
+      setView("log");
+      return Alert.alert("Workout in progress", "Finish or cancel your active workout before changing the routine.");
+    }
+    setWorkouts((current) => rotateIsolationExercises(current, coachingProfile, records));
+    setRoutineStartedAt(new Date().toISOString());
+    setRoutineChangeDeferred(false);
+    routinePromptShown.current = false;
+    setSelected(0);
+    setView("log");
+    Alert.alert("Routine refreshed", "Compound movements were preserved and isolation exercises were rotated for a fresh six-week block.");
+  }
+
+  function requestRoutineRotation() {
+    Alert.alert("Refresh isolation exercises?", "Your compound list will stay unchanged. Isolation exercises will be replaced with suitable alternatives for the same muscles and movement roles.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Restructure", onPress: rotateRoutine },
+    ]);
   }
 
   function openReplacement(exerciseId: string) {
@@ -219,7 +261,7 @@ export default function App() {
   }
 
   function appState(): AppState {
-    return { workouts, records, program: { trainingDays, phase }, activeSession, coachingProfile, coachingDecisions, settings };
+    return { workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings };
   }
 
   async function exportBackup() {
@@ -257,9 +299,11 @@ export default function App() {
 
   function applyRestoredState(state: AppState) {
     setWorkouts(state.workouts);
-    setRecords(recentTwoWeekRecords(state.records));
+    setRecords(recentSixWeekRecords(state.records));
     setTrainingDays(state.program.trainingDays);
     setPhase(state.program.phase);
+    setRoutineStartedAt(state.program.routineStartedAt);
+    setRoutineChangeDeferred(state.program.routineChangeDeferred);
     setActiveSession(state.activeSession);
     setCoachingProfile(fixedTrainingProfile(state.coachingProfile));
     setCoachingDecisions(state.coachingDecisions);
@@ -275,7 +319,7 @@ export default function App() {
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
     </ScrollView>
   </SafeAreaView>;
 }

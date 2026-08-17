@@ -10,7 +10,8 @@ afterEach(() => vi.restoreAllMocks());
 describe("storage migrations", () => {
   it("migrates schema version 1 with no active session", () => {
     const migrated = migrateStoredState({ schemaVersion: 1, workouts: initialFourDaySplit(), records: [], program });
-    expect(migrated?.program).toEqual(program);
+    expect(migrated?.program).toMatchObject({ ...program, routineChangeDeferred: false });
+    expect(migrated?.program.routineStartedAt).toBeTruthy();
     expect(migrated?.activeSession).toBeNull();
     expect(migrated?.coachingProfile).toEqual(DEFAULT_COACHING_PROFILE);
     expect(migrated?.coachingDecisions).toEqual([]);
@@ -103,6 +104,14 @@ describe("storage migrations", () => {
     const coachingProfile = { ...DEFAULT_COACHING_PROFILE, coachingStyle: "classic-physique" as const };
     const migrated = migrateStoredState({ schemaVersion: 10, workouts, records: [], program, activeSession: null, coachingProfile, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS });
     expect(migrated?.coachingProfile.coachingStyle).toBe("classic-physique");
+    expect(migrated?.program).toMatchObject({ ...program, routineChangeDeferred: false });
+  });
+
+  it("retains six-week routine state in schema version 11", () => {
+    const workouts = initialFourDaySplit();
+    const currentProgram = { ...program, routineStartedAt: "2026-07-01T08:00:00.000Z", routineChangeDeferred: true };
+    const migrated = migrateStoredState({ schemaVersion: 11, workouts, records: [], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS });
+    expect(migrated?.program).toEqual(currentProgram);
   });
 
   it("rejects malformed state", () => {
