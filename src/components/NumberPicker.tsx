@@ -1,20 +1,24 @@
-import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 export type NumberOption = { value: number; label: string };
 
-export function NumberPicker({ label, value, options, disabled, onChange }: { label: string; value: number; options: NumberOption[]; disabled?: boolean; onChange: (value: number) => void }) {
+export function NumberPicker({ label, value, options, startingValue = value, disabled, onChange }: { label: string; value: number; options: NumberOption[]; startingValue?: number; disabled?: boolean; onChange: (value: number) => void }) {
   const [open, setOpen] = useState(false);
+  const listRef = useRef<FlatList<NumberOption>>(null);
   const selected = options.find((option) => option.value === value) ?? { value, label: String(value) };
+  useEffect(() => {
+    if (!open) return;
+    const index = Math.max(0, options.findIndex((option) => option.value === startingValue));
+    setTimeout(() => listRef.current?.scrollToIndex({ index, viewPosition: .45, animated: false }), 0);
+  }, [open, options, startingValue]);
   return <>
     <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel={`${label}: ${selected.label}`} onPress={() => setOpen(true)} style={[styles.trigger, disabled && styles.triggerDisabled]}><Text style={[styles.triggerText, disabled && styles.triggerTextDisabled]}>{selected.label}</Text><Text style={styles.chevron}>⌄</Text></Pressable>
     <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
       <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.eyebrow}>SELECT VALUE</Text><Text numberOfLines={2} style={styles.title}>{label}</Text></View><Pressable onPress={() => setOpen(false)} style={styles.close}><Text style={styles.closeText}>DONE</Text></Pressable></View>
-          <ScrollView style={styles.options} contentContainerStyle={styles.optionsContent} showsVerticalScrollIndicator>
-            {options.map((option) => <Pressable key={`${option.value}:${option.label}`} onPress={() => { onChange(option.value); setOpen(false); }} style={[styles.option, option.value === value && styles.optionActive]}><Text style={[styles.optionText, option.value === value && styles.optionTextActive]}>{option.label}</Text>{option.value === value ? <Text style={styles.check}>✓</Text> : null}</Pressable>)}
-          </ScrollView>
+          <FlatList ref={listRef} data={options} style={styles.options} contentContainerStyle={styles.optionsContent} showsVerticalScrollIndicator getItemLayout={(_, index) => ({ length: 46, offset: 46 * index, index })} keyExtractor={(option) => `${option.value}:${option.label}`} renderItem={({ item: option }) => <Pressable onPress={() => { onChange(option.value); setOpen(false); }} style={[styles.option, option.value === value && styles.optionActive]}><Text style={[styles.optionText, option.value === value && styles.optionTextActive]}>{option.label}</Text>{option.value === value ? <Text style={styles.check}>✓</Text> : null}</Pressable>} />
         </Pressable>
       </Pressable>
     </Modal>

@@ -35,7 +35,7 @@ function exercise(id: string, name: string, targetSets: number, repRange: [numbe
 }
 
 function hydrate(items: SeedExercise[]): Exercise[] {
-  return items.map((item) => ({ ...item, sets: Array.from({ length: item.targetSets }, () => ({ weight: item.lastWeight, reps: item.lastReps, completed: false })) }));
+  return items.map((item) => normalizeExercisePrescription({ ...item, sets: Array.from({ length: item.targetSets }, () => ({ weight: item.lastWeight, reps: item.lastReps, completed: false })) }));
 }
 
 function withKnownLoads(workouts: Workout[], existing: Workout[]): Workout[] {
@@ -106,7 +106,7 @@ export function sessionVolume(exercises: Exercise[]): number {
 
 export function setValidationError(set: SetLog): string | null {
   if (!Number.isFinite(set.weight) || set.weight < 0) return "Weight must be zero or greater";
-  if (!Number.isInteger(set.reps) || set.reps < 1) return "Enter at least 1 rep";
+  if (!Number.isInteger(set.reps) || set.reps < 6) return "Enter at least 6 reps";
   return null;
 }
 
@@ -122,7 +122,7 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     focus: workout.focus,
     startedAt: now.toISOString(),
     notes: "",
-    exercises: workout.exercises.map((exercise) => applyWarmupLoads(exercise)),
+    exercises: workout.exercises.map((exercise) => applyWarmupLoads(normalizeExercisePrescription(exercise))),
   };
 }
 
@@ -240,7 +240,7 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
       const best = bestCompletedWorkingSet(latest);
       const workingWeight = best?.weight ?? latest.lastWeight ?? recordedExercise.lastWeight;
       const lastReps = best?.reps ?? latest.lastReps ?? recordedExercise.lastReps;
-      return applyWarmupLoads({
+      return applyWarmupLoads(normalizeExercisePrescription({
         ...recordedExercise,
         loadingType: current?.loadingType ?? latest.loadingType ?? recordedExercise.loadingType,
         loadIncrement: current?.loadIncrement ?? latest.loadIncrement ?? recordedExercise.loadIncrement,
@@ -252,7 +252,7 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
           reps: recordedExercise.sets[index]?.reps || recordedExercise.repRange[0],
           completed: false,
         })),
-      }, workingWeight);
+      }), workingWeight);
     }),
   };
   return deload ? applyDeloadToSession(session) : session;
@@ -296,7 +296,7 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
   const bestReps = historical?.best.weight === bestWeight ? historical.best.reps : known?.lastReps;
   return workouts.map((workout) => workout.id !== workoutId ? workout : {
     ...workout,
-    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads({
+    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads(normalizeExercisePrescription({
       ...exercise,
       id: replacement.id,
       name: replacement.name,
@@ -304,7 +304,7 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
       lastWeight: bestWeight,
       lastReps: bestReps ?? exercise.repRange[0],
       sets: Array.from({ length: exercise.targetSets }, () => ({ weight: bestWeight, reps: bestReps ?? exercise.repRange[0], completed: false })),
-    }, bestWeight)),
+    }), bestWeight)),
   });
 }
 
@@ -370,13 +370,31 @@ export function updateExercisePrescription(exercise: Exercise, changes: { name?:
     reps: repRange[0],
     completed: false,
   });
-  return applyWarmupLoads({
+  return applyWarmupLoads(normalizeExercisePrescription({
     ...exercise,
     ...changes,
     targetSets,
-    repRange: [Math.max(1, repRange[0]), Math.max(repRange[0], repRange[1])],
+    repRange: [Math.max(6, repRange[0]), Math.max(repRange[0], repRange[1])],
     sets,
-  });
+  }));
+}
+
+export function normalizeExercisePrescription(exercise: Exercise): Exercise {
+  const modality = getExerciseDefinition(exercise.id)?.modality;
+  const maximumReps = modality === "compound" ? 10 : 12;
+  const minimumReps = Math.min(maximumReps, Math.max(6, exercise.repRange[0]));
+  const targetSets = modality === "isolation" ? 3 : exercise.targetSets;
+  const repRange: [number, number] = [minimumReps, Math.min(maximumReps, Math.max(minimumReps, exercise.repRange[1]))];
+  return {
+    ...exercise,
+    targetSets,
+    repRange,
+    lastReps: Math.min(maximumReps, Math.max(6, exercise.lastReps)),
+    sets: Array.from({ length: targetSets }, (_, index) => {
+      const source = exercise.sets[index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: minimumReps, completed: false };
+      return { ...source, reps: Math.min(maximumReps, Math.max(6, source.reps)) };
+    }),
+  };
 }
 
 export function moveWorkoutExercise(workout: Workout, exerciseId: string, direction: -1 | 1): Workout {
@@ -401,3 +419,4 @@ export function createCustomExercise(name: string, now = new Date()): Exercise {
     sets: Array.from({ length: 4 }, () => ({ weight: 0, reps: 8, completed: false })),
   };
 }
+import { getExerciseDefinition } from "./exerciseLibrary";

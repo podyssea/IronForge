@@ -221,7 +221,7 @@ describe("units and workout editing", () => {
   it("updates prescriptions while retaining two working sets", () => {
     const exercise = updateExercisePrescription(initialFourDaySplit()[0].exercises[0], { targetSets: 5, repRange: [5, 7], loadIncrement: 2, restSeconds: 150 });
     expect(exercise.sets).toHaveLength(5);
-    expect(exercise.repRange).toEqual([5, 7]);
+    expect(exercise.repRange).toEqual([6, 7]);
     expect(exercise.loadIncrement).toBe(2);
     expect(exercise.restSeconds).toBe(150);
   });
@@ -299,6 +299,21 @@ describe("exercise replacement", () => {
     expect(updated[0].exercises[0].lastWeight).toBe(100);
     expect(updated[0].exercises[0].loadingType).toBe("plate-loaded");
     expect(updated[0].exercises[0].sets.map((set) => set.weight)).toEqual([50, 70, 100, 100]);
+  });
+});
+
+describe("modality prescriptions", () => {
+  it("uses three sets and no more than 12 reps for isolation exercises", () => {
+    const isolation = initialFourDaySplit()[0].exercises.find((exercise) => exercise.id === "preacher-curl")!;
+    expect(isolation.targetSets).toBe(3);
+    expect(isolation.sets).toHaveLength(3);
+    expect(isolation.repRange[0]).toBeGreaterThanOrEqual(6);
+    expect(isolation.repRange[1]).toBeLessThanOrEqual(12);
+  });
+
+  it("starts compounds at six reps and caps them at 10", () => {
+    const compounds = initialFourDaySplit().flatMap((workout) => workout.exercises).filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "compound");
+    expect(compounds.every((exercise) => exercise.repRange[0] >= 6 && exercise.repRange[1] <= 10)).toBe(true);
   });
 });
 

@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
+import { normalizeExercisePrescription } from "../domain/training";
 import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, normalizeProgramPreferences, ProgramPreferences, StoredAppStateV11 } from "./migrations";
 
 const APP_STATE_KEY = "ironforge-app-state";
@@ -13,7 +14,7 @@ export type { AppState, ProgramPreferences } from "./migrations";
 function defaultProgram(): ProgramPreferences { return normalizeProgramPreferences({ trainingDays: 4, phase: "hypertrophy" }); }
 
 export function createDefaultAppState(): AppState {
-  return { workouts: personalBaselineWorkouts(), records: personalBaselineRecords(), program: defaultProgram(), activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } };
+  return { workouts: personalBaselineWorkouts().map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercisePrescription) })), records: personalBaselineRecords(), program: defaultProgram(), activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } };
 }
 
 export async function loadAppState(): Promise<AppState> {

@@ -1,4 +1,4 @@
-import { ActiveSession, Exercise, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { ActiveSession, Exercise, normalizeExercisePrescription, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
@@ -253,11 +253,11 @@ function normalizeRecords(records: SessionRecord[]): SessionRecord[] {
 }
 
 function normalizeActiveSession(session: ActiveSession | null): ActiveSession | null {
-  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "", exercises: session.exercises.map(normalizeExercise) } : null;
+  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "", exercises: session.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise))) } : null;
 }
 
 function normalizeWorkouts(workouts: Workout[]): Workout[] {
-  return workouts.map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercise) }));
+  return workouts.map((workout) => ({ ...workout, exercises: workout.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise))) }));
 }
 
 function normalizeExercise(exercise: Exercise): Exercise {
