@@ -156,11 +156,12 @@ function selectExercise(pattern: MovementPattern, profile: CoachingProfile, chos
 
 function buildExercise(definition: ExerciseDefinition, goal: TrainingStyle, known: Exercise | undefined, availableEquipment: CoachingProfile["availableEquipment"], classicPhysique: boolean): Exercise {
   const compoundSets: Record<TrainingStyle, number> = { strength: 4, hypertrophy: 4, "general-fitness": 3, "muscular-endurance": 3 };
-  const isolationSets: Record<TrainingStyle, number> = { strength: 3, hypertrophy: 3, "general-fitness": 2, "muscular-endurance": 2 };
-  const targetSets = classicPhysique && definition.modality === "isolation" && goal === "hypertrophy" ? 4 : definition.modality === "compound" ? compoundSets[goal] : isolationSets[goal];
-  const repRange = definition.defaultRepRanges[goal];
+  const targetSets = definition.modality === "compound" ? compoundSets[goal] : 3;
+  const prescribedRange = definition.defaultRepRanges[goal];
+  const maximumReps = definition.modality === "compound" ? 10 : 12;
+  const repRange: [number, number] = [Math.min(maximumReps, Math.max(6, prescribedRange[0])), Math.min(maximumReps, Math.max(6, prescribedRange[1]))];
   const lastWeight = known?.lastWeight ?? 0;
-  const lastReps = known?.lastReps ?? repRange[0];
+  const lastReps = Math.min(maximumReps, Math.max(6, known?.lastReps ?? repRange[0]));
   return {
     id: definition.id,
     name: definition.name,
@@ -172,7 +173,7 @@ function buildExercise(definition: ExerciseDefinition, goal: TrainingStyle, know
       ? `Classic Physique: ${definition.trainingRole?.replaceAll("-", " ")} ${definition.movementPattern.replaceAll("-", " ")} for ${definition.primaryMuscles.join(" and ")}, with ${definition.resistanceProfile} resistance and controlled execution.`
       : `${definition.movementPattern.replaceAll("-", " ")} for ${definition.primaryMuscles.join(" and ")}; matches ${goal.replaceAll("-", " ")} and available ${definition.equipment.filter((item) => availableEquipment.includes(item)).join("/")}.`,
     restSeconds: definition.trainingRole === "heavy-compound" ? 180 : definition.trainingRole === "stable-compound" ? 150 : 90,
-    sets: Array.from({ length: targetSets }, (_, index) => ({ weight: known?.sets[index]?.weight ?? lastWeight, reps: known?.sets[index]?.reps ?? lastReps, completed: false })),
+    sets: Array.from({ length: targetSets }, (_, index) => ({ weight: known?.sets[index]?.weight ?? lastWeight, reps: Math.min(maximumReps, Math.max(6, known?.sets[index]?.reps ?? lastReps)), completed: false })),
   };
 }
 

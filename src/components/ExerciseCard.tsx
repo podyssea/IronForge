@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { displayExerciseWeight, exerciseWeightLabel, Exercise, isWorkingSet, LoadingType, progression, setValidationError, SetLog, storedExerciseWeight, WeightUnit } from "../domain/training";
+import { getExerciseDefinition } from "../domain/exerciseLibrary";
 import { NumberOption, NumberPicker } from "./NumberPicker";
 
 type ExerciseCardProps = {
@@ -18,9 +19,12 @@ type ExerciseCardProps = {
   highlighted?: boolean;
   onToggleExpanded: (id: string) => void;
   onExerciseCompleted?: (id: string) => void;
+  onMove?: (id: string, direction: -1 | 1) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 };
 
-export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted }: ExerciseCardProps) {
+export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted, onMove, canMoveUp, canMoveDown }: ExerciseCardProps) {
   const isComplete = exercise.sets.every((set) => set.completed);
   const toggleExercise = () => {
     if (!isComplete) {
@@ -28,36 +32,33 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
       if (invalid) return Alert.alert("Check set values", setValidationError(invalid) ?? "Enter valid values before completing this exercise.");
     }
     exercise.sets.forEach((_, index) => onChange(exercise.id, index, { completed: !isComplete }));
-    if (!isComplete) onExerciseCompleted?.(exercise.id);
+    if (!isComplete) {
+      onSetCompleted?.(exercise);
+      onExerciseCompleted?.(exercise.id);
+    }
   };
   const updateSetValue = (set: SetLog, index: number, changes: Partial<SetLog>) => {
     const next = { ...set, ...changes };
     onChange(exercise.id, index, { ...changes, ...(set.completed && setValidationError(next) ? { completed: false } : {}) });
   };
-  const toggleSet = (set: SetLog, index: number) => {
-    const error = setValidationError(set);
-    if (!set.completed && error) return Alert.alert("Set not complete", error);
-    onChange(exercise.id, index, { completed: !set.completed });
-    if (!set.completed) onSetCompleted?.(exercise);
-    if (!set.completed && exercise.sets.every((item, itemIndex) => itemIndex === index || item.completed)) onExerciseCompleted?.(exercise.id);
-  };
-
   const warmupCount = Math.max(0, exercise.sets.length - 2);
+  const isIsolation = getExerciseDefinition(exercise.id)?.modality === "isolation";
   const weightOptions = useMemo(() => buildWeightOptions(exercise, weightUnit), [exercise.lastWeight, exercise.loadIncrement, exercise.loadingType, weightUnit]);
   return <View style={[styles.card, highlighted && styles.cardHighlighted, isComplete && styles.cardComplete]}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => onToggleExpanded(exercise.id)} style={[styles.exerciseHeader, !expanded && styles.exerciseHeaderCollapsed]}><View style={styles.headerMain}><View style={styles.exerciseLabelRow}><Text style={styles.exerciseNumber}>EXERCISE {String(number).padStart(2, "0")}</Text>{isComplete ? <Text style={styles.finishedBadge}>✓ FINISHED</Text> : highlighted ? <Text style={styles.nextBadge}>NEXT UP</Text> : null}</View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseMeta}>{warmupCount ? `${warmupCount} warm-up · ` : ""}2 working · {exercise.repRange[0]}–{exercise.repRange[1]} reps</Text></View><View style={styles.previous}><Text style={styles.previousLabel}>{exercise.loadingType === "plate-loaded" ? "WORKING LOAD / SIDE" : "WORKING LOAD"}</Text><Text style={styles.previousValue}>{displayExerciseWeight(exercise.lastWeight, exercise, weightUnit)} <Text style={styles.unit}>{exerciseWeightLabel(exercise, weightUnit)}</Text> × {exercise.lastReps}</Text><Text style={styles.expand}>{expanded ? "COLLAPSE ︿" : "EXPAND ﹀"}</Text></View></Pressable>
-    {expanded && <><View style={styles.tableHead}><Text style={[styles.head, styles.setCol]}>SET</Text><Text style={[styles.head, styles.inputCol]}>{exerciseWeightLabel(exercise, weightUnit).toUpperCase()}</Text><Text style={[styles.head, styles.inputCol]}>REPS</Text><Text style={[styles.head, styles.doneCol]}>DONE</Text></View>
-    {exercise.sets.map((set, index) => { const error = setValidationError(set); const working = isWorkingSet(exercise, index); return <View key={index}><View style={[styles.setRow, set.completed && styles.setRowDone, error && styles.setRowInvalid]}><View style={styles.setCol}><Text style={styles.setNumber}>{index + 1}</Text><Text style={[styles.setRole, working && styles.setRoleWorking]}>{working ? "WORK" : "WARM"}</Text></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} weight (${exerciseWeightLabel(exercise, weightUnit)})`} value={set.weight} options={weightOptions} disabled={!editable} onChange={(weight) => updateSetValue(set, index, { weight })} /></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} set ${index + 1} reps`} value={set.reps} options={REP_OPTIONS} disabled={!editable} onChange={(reps) => updateSetValue(set, index, { reps })} /></View><Pressable disabled={!editable} accessibilityRole="checkbox" accessibilityState={{ checked: set.completed, disabled: !editable }} accessibilityLabel={`${exercise.name}, ${working ? "working" : "warm-up"} set ${index + 1}`} onPress={() => toggleSet(set, index)} style={[styles.setToggle, set.completed && styles.setToggleDone, !editable && styles.setToggleDisabled]}><Text style={[styles.setToggleText, set.completed && styles.setToggleTextDone]}>{set.completed ? "✓" : ""}</Text></Pressable></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
-    {editable && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isComplete }} onPress={toggleExercise} style={[styles.exerciseToggle, isComplete && styles.exerciseToggleDone]}><Text style={[styles.exerciseToggleText, isComplete && styles.exerciseToggleTextDone]}>{isComplete ? "✓ EXERCISE COMPLETE" : "MARK EXERCISE COMPLETE"}</Text></Pressable>}
+    {expanded && <><View style={styles.tableHead}><Text style={[styles.head, styles.setCol]}>SET</Text><Text style={[styles.head, styles.inputCol]}>{exerciseWeightLabel(exercise, weightUnit).toUpperCase()}</Text><Text style={[styles.head, styles.inputCol]}>REPS</Text></View>
+    {exercise.sets.map((set, index) => { const error = setValidationError(set); const working = isWorkingSet(exercise, index); return <View key={index}><View style={[styles.setRow, isComplete && styles.setRowDone, error && styles.setRowInvalid]}><View style={styles.setCol}><Text style={styles.setNumber}>{index + 1}</Text><Text style={[styles.setRole, working && styles.setRoleWorking]}>{working ? "WORK" : "WARM"}</Text></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} weight (${exerciseWeightLabel(exercise, weightUnit)})`} value={set.weight} startingValue={index ? exercise.sets[index - 1].weight : set.weight} options={weightOptions} disabled={!editable || isComplete} onChange={(weight) => updateSetValue(set, index, { weight })} /></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} set ${index + 1} reps`} value={set.reps} options={REP_OPTIONS.filter((option) => option.value <= exercise.repRange[1])} disabled={!editable || isComplete} onChange={(reps) => updateSetValue(set, index, { reps })} /></View></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
+    {editable && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isComplete }} onPress={toggleExercise} style={[styles.exerciseToggle, isComplete && styles.exerciseToggleDone]}><Text style={[styles.exerciseToggleText, isComplete && styles.exerciseToggleTextDone]}>{isComplete ? "✓ FINISHED · TAP TO REOPEN" : "FINISH EXERCISE"}</Text></Pressable>}
+    {onMove && <View style={styles.moveActions}><Pressable disabled={!canMoveUp} onPress={() => onMove(exercise.id, -1)} style={[styles.moveButton, !canMoveUp && styles.moveDisabled]}><Text style={styles.moveText}>↑ MOVE UP</Text></Pressable><Pressable disabled={!canMoveDown} onPress={() => onMove(exercise.id, 1)} style={[styles.moveButton, !canMoveDown && styles.moveDisabled]}><Text style={styles.moveText}>↓ MOVE DOWN</Text></Pressable></View>}
     {onLoadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>{exercise.loadingType ? "MACHINE LOADING" : "SELECT MACHINE LOADING · OPTIONAL BEFORE START"}</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={[styles.loadingChoice, exercise.loadingType === item && styles.loadingChoiceActive]}><Text style={[styles.loadingChoiceText, exercise.loadingType === item && styles.loadingChoiceTextActive]}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED · PER SIDE"}</Text></Pressable>)}</View></View>}
-    {!editable && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 8 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
+    {!editable && !isIsolation && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 8 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
     {!editable && onReplace && <Pressable onPress={() => onReplace(exercise.id)} style={styles.replace}><Text style={styles.replaceText}>REPLACE WITH ANY EXERCISE</Text></Pressable>}
     {exercise.selectionReason && <Text style={styles.reason}>COACH: {exercise.selectionReason}</Text>}
     <Text style={styles.tip}>{progression(exercise, weightUnit)}</Text></>}
   </View>;
 }
 
-const REP_OPTIONS: NumberOption[] = Array.from({ length: 50 }, (_, index) => ({ value: index + 1, label: String(index + 1) }));
+const REP_OPTIONS: NumberOption[] = Array.from({ length: 45 }, (_, index) => ({ value: index + 6, label: String(index + 6) }));
 
 function buildWeightOptions(exercise: Exercise, unit: WeightUnit): NumberOption[] {
   const maximumStored = Math.max(exercise.loadingType === "plate-loaded" ? 600 : 300, exercise.lastWeight + storedExerciseWeight(20, exercise, unit));
@@ -68,7 +69,7 @@ function buildWeightOptions(exercise: Exercise, unit: WeightUnit): NumberOption[
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: "#1a1f1a", borderRadius: 10, borderWidth: 1, borderColor: "transparent", padding: 15, marginTop: 14 }, cardHighlighted: { borderColor: "#d8ff38", backgroundColor: "#1d2419" }, cardComplete: { borderColor: "#35402f", opacity: .86 },
+  card: { backgroundColor: "#1a1f1a", borderRadius: 10, borderWidth: 1, borderColor: "transparent", padding: 15, marginTop: 14 }, cardHighlighted: { borderColor: "#d8ff38", backgroundColor: "#1d2419" }, cardComplete: { borderColor: "#6f8b31", backgroundColor: "#26331f" },
   exerciseHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 }, exerciseHeaderCollapsed: { marginBottom: 0 }, headerMain: { flex: 1, paddingRight: 8 },
   exerciseLabelRow: { flexDirection: "row", alignItems: "center", gap: 7 }, exerciseNumber: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 }, nextBadge: { color: "#15190f", backgroundColor: "#d8ff38", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 7, fontWeight: "900", letterSpacing: .6 }, finishedBadge: { color: "#d8ff38", backgroundColor: "#293322", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 7, fontWeight: "900", letterSpacing: .6 },
   exerciseName: { color: "#f3f5f1", fontSize: 17, fontWeight: "800", marginTop: 3 },
@@ -76,17 +77,15 @@ const styles = StyleSheet.create({
   previous: { alignItems: "flex-end" }, previousLabel: { color: "#717971", fontSize: 8, fontWeight: "800", letterSpacing: .8 },
   previousValue: { color: "#ebeee8", fontSize: 12, fontWeight: "700", marginTop: 4 }, unit: { color: "#929a91" }, expand: { color: "#d8ff38", fontSize: 7, fontWeight: "900", marginTop: 9 },
   tableHead: { flexDirection: "row", paddingBottom: 7 }, head: { color: "#777f76", fontSize: 9, fontWeight: "800", letterSpacing: .7 },
-  setCol: { width: "14%" }, inputCol: { width: "33%" }, doneCol: { width: "20%", textAlign: "center" },
+  setCol: { width: "20%" }, inputCol: { width: "40%" },
   setRow: { flexDirection: "row", alignItems: "center", minHeight: 45, borderTopWidth: 1, borderTopColor: "#2b312b" },
   setRowDone: { backgroundColor: "#202a1d" }, setRowInvalid: { borderTopColor: "#7d443a" },
   setNumber: { color: "#aeb5ad", fontSize: 13, fontWeight: "700", paddingLeft: 6 }, setRole: { color: "#717971", fontSize: 6, fontWeight: "900", letterSpacing: .4, paddingLeft: 6 }, setRoleWorking: { color: "#d8ff38" },
-  setToggle: { width: 25, height: 25, borderRadius: 5, borderColor: "#667063", borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginHorizontal: 13 },
-  setToggleDone: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, setToggleDisabled: { opacity: .35 },
-  setToggleText: { color: "#899188", fontSize: 14, fontWeight: "900" }, setToggleTextDone: { color: "#15200e" },
   setError: { color: "#e28b7d", fontSize: 9, fontWeight: "700", marginTop: -2, marginBottom: 7, marginLeft: "14%" },
   exerciseToggle: { height: 38, marginTop: 12, borderWidth: 1, borderColor: "#667063", borderRadius: 6, justifyContent: "center", alignItems: "center" },
   exerciseToggleDone: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, exerciseToggleText: { color: "#cbd1c9", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
   exerciseToggleTextDone: { color: "#15200e" }, tip: { color: "#858d83", fontSize: 10, marginTop: 11, lineHeight: 14 },
+  moveActions: { flexDirection: "row", gap: 7, marginTop: 11 }, moveButton: { flex: 1, height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#687166", justifyContent: "center", alignItems: "center" }, moveDisabled: { opacity: .25 }, moveText: { color: "#c2c9bf", fontSize: 8, fontWeight: "900", letterSpacing: .6 },
   replace: { height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#566052", justifyContent: "center", alignItems: "center", marginTop: 11 }, replaceText: { color: "#c2c9bf", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
   setActions: { flexDirection: "row", gap: 7, marginTop: 11 }, addSet: { flex: 1, height: 36, borderRadius: 6, borderWidth: 1, borderColor: "#d8ff38", justifyContent: "center", alignItems: "center" }, addSetText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .7 }, removeSet: { flex: 1, height: 36, borderRadius: 6, borderWidth: 1, borderColor: "#687166", justifyContent: "center", alignItems: "center" }, removeSetText: { color: "#b8c0b5", fontSize: 9, fontWeight: "900", letterSpacing: .6 },
   reason: { color: "#b9c99b", fontSize: 10, lineHeight: 15, marginTop: 11 },
