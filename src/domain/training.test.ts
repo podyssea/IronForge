@@ -73,6 +73,7 @@ describe("active session lifecycle", () => {
     workout.exercises[0].sets[0].completed = true;
     const session = startActiveSession(workout, new Date("2026-01-01T10:00:00.000Z"));
     expect(session.startedAt).toBe("2026-01-01T10:00:00.000Z");
+    expect(session.focusedExerciseId).toBe(session.exercises[0].id);
     expect(session.exercises[0].sets[0].completed).toBe(false);
     session.exercises[0].sets[0].weight = 99;
     expect(workout.exercises[0].sets[0].weight).not.toBe(99);
