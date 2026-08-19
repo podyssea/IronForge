@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, LayoutChangeEvent, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ExerciseCard } from "../components/ExerciseCard";
 import { CoachPanel } from "../components/CoachPanel";
 import { CoachingRecommendation } from "../domain/coaching";
@@ -29,9 +29,11 @@ type WorkoutScreenProps = {
   onRemoveSet: (id: string) => void;
   onMoveExercise: (id: string, direction: -1 | 1) => void;
   defaultRestSeconds: number;
+  onFocusedExerciseChange: (id: string | null) => void;
+  onExerciseLayout: (id: string, event: LayoutChangeEvent) => void;
 };
 
-export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, onSetChange, onFinish, onCancel, onReplaceExercise, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds }: WorkoutScreenProps) {
+export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, onSetChange, onFinish, onCancel, onReplaceExercise, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout }: WorkoutScreenProps) {
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const [restNotificationId, setRestNotificationId] = useState<string | null>(null);
   const [restExerciseName, setRestExerciseName] = useState("Exercise");
@@ -39,10 +41,12 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
   const [expandedExerciseIds, setExpandedExerciseIds] = useState<Set<string>>(() => new Set(displayedWorkout.exercises[0] ? [displayedWorkout.exercises[0].id] : []));
   const [highlightedExerciseId, setHighlightedExerciseId] = useState<string | null>(displayedWorkout.exercises[0]?.id ?? null);
   useEffect(() => {
-    const next = displayedWorkout.exercises.find((exercise) => !exercise.sets.every((set) => set.completed));
-    setExpandedExerciseIds(new Set(next ? [next.id] : []));
-    setHighlightedExerciseId(activeSession ? next?.id ?? null : null);
-  }, [activeSession?.id, displayedWorkout.id]);
+    const saved = activeSession?.focusedExerciseId && displayedWorkout.exercises.some((exercise) => exercise.id === activeSession.focusedExerciseId) ? activeSession.focusedExerciseId : null;
+    const next = saved ?? displayedWorkout.exercises.find((exercise) => !exercise.sets.every((set) => set.completed))?.id ?? null;
+    setExpandedExerciseIds(new Set(next ? [next] : []));
+    setHighlightedExerciseId(activeSession ? next : null);
+    if (activeSession && activeSession.focusedExerciseId !== next) onFocusedExerciseChange(next);
+  }, [activeSession?.id, activeSession?.focusedExerciseId, displayedWorkout.id]);
   useEffect(() => {
     if (!restEndsAt) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -76,12 +80,11 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     setRestNotificationId(await scheduleRestNotification(seconds, restExerciseName));
   }
   function toggleExerciseExpanded(exerciseId: string) {
-    setExpandedExerciseIds((current) => {
-      const next = new Set(current);
-      if (next.has(exerciseId)) next.delete(exerciseId);
-      else next.add(exerciseId);
-      return next;
-    });
+    const collapsing = expandedExerciseIds.has(exerciseId);
+    const next = collapsing ? null : exerciseId;
+    setExpandedExerciseIds(new Set(next ? [next] : []));
+    setHighlightedExerciseId(activeSession ? next : null);
+    if (activeSession) onFocusedExerciseChange(next);
   }
 
   function advanceFromExercise(exerciseId: string) {
@@ -90,6 +93,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     const nextExercise = displayedWorkout.exercises.slice(currentIndex + 1).find(unfinished) ?? displayedWorkout.exercises.slice(0, currentIndex).find(unfinished);
     setExpandedExerciseIds(new Set(nextExercise ? [nextExercise.id] : []));
     setHighlightedExerciseId(nextExercise?.id ?? null);
+    onFocusedExerciseChange(nextExercise?.id ?? null);
   }
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed && !setValidationError(set)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
@@ -105,7 +109,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     {!activeSession && <CoachPanel recommendations={recommendations} onApply={onApplyRecommendation} onReject={onRejectRecommendation} weightUnit={weightUnit} />}
     <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{displayWeight(volume, weightUnit).toLocaleString()}</Text><Text style={styles.summaryLabel}>{weightUnitLabel(weightUnit).toUpperCase()} VOLUME</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{displayedWorkout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
     {!activeSession && <><Pressable accessibilityRole="button" accessibilityState={{ selected: deloadEnabled }} onPress={onDeloadToggle} style={[styles.deload, deloadEnabled && styles.deloadActive]}><Text style={[styles.deloadText, deloadEnabled && styles.deloadTextActive]}>{deloadEnabled ? "✓ DELOAD ON · 75%" : "DELOAD · 75%"}</Text></Pressable><Text style={styles.deloadHint}>Reduces this workout's working weights only</Text><Pressable style={styles.finish} onPress={onBegin}><Text style={styles.finishText}>START WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable></>}
-    {displayedWorkout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} expanded={expandedExerciseIds.has(exercise.id)} highlighted={Boolean(activeSession) && highlightedExerciseId === exercise.id} onToggleExpanded={toggleExerciseExpanded} onExerciseCompleted={advanceFromExercise} onChange={onSetChange} onReplace={activeSession ? undefined : onReplaceExercise} onLoadingType={onLoadingType} onAddSet={activeSession ? undefined : onAddSet} onRemoveSet={activeSession ? undefined : onRemoveSet} onMove={onMoveExercise} canMoveUp={number > 0} canMoveDown={number < displayedWorkout.exercises.length - 1} weightUnit={weightUnit} onSetCompleted={startRest} />)}
+    {displayedWorkout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} expanded={expandedExerciseIds.has(exercise.id)} highlighted={Boolean(activeSession) && highlightedExerciseId === exercise.id} onToggleExpanded={toggleExerciseExpanded} onExerciseCompleted={advanceFromExercise} onChange={onSetChange} onReplace={onReplaceExercise} onLoadingType={onLoadingType} onAddSet={activeSession ? undefined : onAddSet} onRemoveSet={activeSession ? undefined : onRemoveSet} onMove={onMoveExercise} canMoveUp={number > 0} canMoveDown={number < displayedWorkout.exercises.length - 1} weightUnit={weightUnit} onSetCompleted={startRest} onLayout={onExerciseLayout} />)}
     {activeSession && <><Pressable style={styles.finish} onPress={onFinish}><Text style={styles.finishText}>FINISH WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable><Pressable style={styles.cancel} onPress={onCancel}><Text style={styles.cancelText}>CANCEL WORKOUT</Text></Pressable></>}
   </>;
 }

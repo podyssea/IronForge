@@ -26,7 +26,7 @@ export type Exercise = {
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
 export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
-export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; exercises: Exercise[] };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 
@@ -115,6 +115,7 @@ export function isSessionComplete(exercises: Exercise[]): boolean {
 }
 
 export function startActiveSession(workout: Workout, now = new Date()): ActiveSession {
+  const exercises = workout.exercises.map((exercise) => applyWarmupLoads(normalizeExercisePrescription(exercise)));
   return {
     id: String(now.getTime()),
     workoutId: workout.id,
@@ -122,7 +123,8 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     focus: workout.focus,
     startedAt: now.toISOString(),
     notes: "",
-    exercises: workout.exercises.map((exercise) => applyWarmupLoads(normalizeExercisePrescription(exercise))),
+    focusedExerciseId: exercises[0]?.id,
+    exercises,
   };
 }
 

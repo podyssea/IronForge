@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, LayoutChangeEvent, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./src/domain/programGenerator";
@@ -35,6 +35,8 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [deloadWorkoutIds, setDeloadWorkoutIds] = useState<Set<string>>(() => new Set());
   const routinePromptShown = useRef(false);
+  const workoutScroll = useRef<ScrollView>(null);
+  const exerciseOffsets = useRef<Record<string, number>>({});
 
   useEffect(() => {
     loadAppState().then((state) => {
@@ -101,15 +103,30 @@ export default function App() {
   }
 
   function setLoadingType(exerciseId: string, loadingType: LoadingType) {
-    const targetWorkoutId = activeSession?.workoutId ?? workout.id;
-    setWorkouts((current) => current.map((item) => item.id !== targetWorkoutId ? item : {
+    setWorkouts((current) => current.map((item) => ({
       ...item,
-      exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, loadingType } : exercise),
-    }));
+      exercises: item.exercises.map((exercise) => exercise.id === exerciseId && !exercise.loadingType ? { ...exercise, loadingType } : exercise),
+    })));
     setActiveSession((current) => !current ? current : {
       ...current,
-      exercises: current.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, loadingType } : exercise),
+      exercises: current.exercises.map((exercise) => exercise.id === exerciseId && !exercise.loadingType ? { ...exercise, loadingType } : exercise),
     });
+  }
+
+  function scrollToExercise(exerciseId: string, animated: boolean) {
+    const offset = exerciseOffsets.current[exerciseId];
+    if (offset === undefined) return;
+    requestAnimationFrame(() => workoutScroll.current?.scrollTo({ y: Math.max(0, offset - 12), animated }));
+  }
+
+  function focusExercise(exerciseId: string | null) {
+    setActiveSession((current) => current ? { ...current, focusedExerciseId: exerciseId ?? undefined } : current);
+    if (exerciseId) scrollToExercise(exerciseId, true);
+  }
+
+  function registerExerciseLayout(exerciseId: string, event: LayoutChangeEvent) {
+    exerciseOffsets.current[exerciseId] = event.nativeEvent.layout.y;
+    if (activeSession?.focusedExerciseId === exerciseId) scrollToExercise(exerciseId, false);
   }
 
   function addExerciseSet(exerciseId: string) {
@@ -205,10 +222,23 @@ export default function App() {
   function chooseReplacement(replacement: ExerciseDefinition) {
     if (!replacementExerciseId) return;
     const replaced = displayedWorkout.exercises.find((exercise) => exercise.id === replacementExerciseId);
-    setWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement, records));
+    if (activeSession) {
+      const temporaryWorkoutId = `active-${activeSession.id}`;
+      const activeWorkout: Workout = { id: temporaryWorkoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises };
+      const replacedActiveWorkout = replaceWorkoutExercise([...workouts, activeWorkout], temporaryWorkoutId, replacementExerciseId, replacement, records).find((item) => item.id === temporaryWorkoutId);
+      if (replacedActiveWorkout) {
+        setActiveSession((current) => !current ? current : {
+          ...current,
+          focusedExerciseId: current.focusedExerciseId === replacementExerciseId ? replacement.id : current.focusedExerciseId,
+          exercises: replacedActiveWorkout.exercises,
+        });
+      }
+    } else {
+      setWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement, records));
+    }
     setReplacementExerciseId(null);
     setView("log");
-    Alert.alert("Exercise replaced", `${replaced?.name ?? "Exercise"} was replaced with ${replacement.name}. Your set and rep prescription was retained.`);
+    Alert.alert("Exercise replaced", `${replaced?.name ?? "Exercise"} was replaced with ${replacement.name}. Your set and rep prescription was retained${activeSession ? " for this session" : ""}.`);
   }
 
   function setExercisePreference(exerciseId: string, preference: "preferred" | "excluded" | "neutral") {
@@ -322,10 +352,10 @@ export default function App() {
   }
 
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
-    <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} />}
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} />}
     </ScrollView>
   </SafeAreaView>;
 }
