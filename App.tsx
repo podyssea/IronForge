@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, LayoutChangeEvent, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
+import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./src/domain/programGenerator";
 import { deleteSessionRecord, recentSixWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
@@ -37,6 +37,7 @@ export default function App() {
   const routinePromptShown = useRef(false);
   const workoutScroll = useRef<ScrollView>(null);
   const exerciseOffsets = useRef<Record<string, number>>({});
+  const pendingFocusedExerciseId = useRef<string | null>(null);
 
   useEffect(() => {
     loadAppState().then((state) => {
@@ -88,7 +89,7 @@ export default function App() {
   const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
   const workout = workouts[selectedWorkoutIndex];
   const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises } : { ...workout, exercises: workout.exercises.map((exercise) => applyWarmupLoads(exercise)) };
-  const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed && !setValidationError(set)).length, 0);
+  const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && !setValidationError(set, exercise, index)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);
 
@@ -113,6 +114,13 @@ export default function App() {
     });
   }
 
+  function setThreeByFiveWorkingLoad(exerciseId: string, weight: number) {
+    setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
+      ...item,
+      exercises: item.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads({ ...exercise, lastWeight: weight, lastReps: 5 }, weight)),
+    }));
+  }
+
   function scrollToExercise(exerciseId: string, animated: boolean) {
     const offset = exerciseOffsets.current[exerciseId];
     if (offset === undefined) return;
@@ -120,16 +128,27 @@ export default function App() {
   }
 
   function focusExercise(exerciseId: string | null) {
+    pendingFocusedExerciseId.current = exerciseId;
     setActiveSession((current) => current ? { ...current, focusedExerciseId: exerciseId ?? undefined } : current);
     if (exerciseId) scrollToExercise(exerciseId, true);
   }
 
   function registerExerciseLayout(exerciseId: string, event: LayoutChangeEvent) {
     exerciseOffsets.current[exerciseId] = event.nativeEvent.layout.y;
-    if (activeSession?.focusedExerciseId === exerciseId) scrollToExercise(exerciseId, false);
+    if (activeSession?.focusedExerciseId === exerciseId || pendingFocusedExerciseId.current === exerciseId) {
+      scrollToExercise(exerciseId, false);
+      if (pendingFocusedExerciseId.current === exerciseId) pendingFocusedExerciseId.current = null;
+    }
   }
 
   function addExerciseSet(exerciseId: string) {
+    if (activeSession) {
+      setActiveSession((current) => !current ? current : {
+        ...current,
+        exercises: current.exercises.map((exercise) => exercise.id === exerciseId ? resizeActiveExerciseSets(exercise, exercise.targetSets + 1) : exercise),
+      });
+      return;
+    }
     setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? updateExercisePrescription(exercise, { targetSets: exercise.targetSets + 1 }) : exercise),
@@ -137,6 +156,13 @@ export default function App() {
   }
 
   function removeExerciseSet(exerciseId: string) {
+    if (activeSession) {
+      setActiveSession((current) => !current ? current : {
+        ...current,
+        exercises: current.exercises.map((exercise) => exercise.id === exerciseId ? resizeActiveExerciseSets(exercise, exercise.targetSets - 1) : exercise),
+      });
+      return;
+    }
     setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? updateExercisePrescription(exercise, { targetSets: exercise.targetSets - 1 }) : exercise),
@@ -233,6 +259,7 @@ export default function App() {
           exercises: replacedActiveWorkout.exercises,
         });
       }
+      setWorkouts((current) => replaceWorkoutExercise(current, activeSession.workoutId, replacementExerciseId, replacement, records));
     } else {
       setWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement, records));
     }
@@ -352,16 +379,18 @@ export default function App() {
   }
 
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
-    <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
+    <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+    <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} />}
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByFiveWorkingLoad} />}
     </ScrollView>
+    </KeyboardAvoidingView>
   </SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#101311" }, page: { padding: 20, paddingBottom: 42 },
+  safe: { flex: 1, backgroundColor: "#101311" }, keyboard: { flex: 1 }, page: { padding: 20, paddingBottom: 42 },
   storageError: { backgroundColor: "#3b211d", borderColor: "#d36b5b", borderWidth: 1, borderRadius: 7, padding: 11, marginTop: 10 }, storageErrorText: { color: "#ffd6cf", fontSize: 11, lineHeight: 16, fontWeight: "700" },
   viewTabs: { flexDirection: "row", backgroundColor: "#1a1f1a", borderRadius: 8, padding: 4, marginTop: 22, gap: 4 }, viewTab: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 5 }, viewTabActive: { backgroundColor: "#d8ff38" }, viewTabText: { color: "#848c82", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, viewTabTextActive: { color: "#15190f" },
 });
