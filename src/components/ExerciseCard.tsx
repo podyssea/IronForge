@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Alert, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from "react-native";
-import { displayExerciseWeight, exerciseWeightLabel, Exercise, isWorkingSet, LoadingType, progression, setValidationError, SetLog, storedExerciseWeight, WeightUnit } from "../domain/training";
+import { displayExerciseWeight, displayWeight, exerciseWeightLabel, Exercise, isThreeByFiveExercise, isWorkingSet, LoadingType, progression, setValidationError, SetLog, storedExerciseWeight, WeightUnit, weightUnitLabel, workingSetStartIndex } from "../domain/training";
 import { getExerciseDefinition } from "../domain/exerciseLibrary";
 import { NumberOption, NumberPicker } from "./NumberPicker";
 
@@ -23,14 +23,15 @@ type ExerciseCardProps = {
   canMoveUp?: boolean;
   canMoveDown?: boolean;
   onLayout?: (id: string, event: LayoutChangeEvent) => void;
+  onWorkingLoadChange?: (id: string, weight: number) => void;
 };
 
-export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted, onMove, canMoveUp, canMoveDown, onLayout }: ExerciseCardProps) {
+export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted, onMove, canMoveUp, canMoveDown, onLayout, onWorkingLoadChange }: ExerciseCardProps) {
   const isComplete = exercise.sets.every((set) => set.completed);
   const toggleExercise = () => {
     if (!isComplete) {
-      const invalid = exercise.sets.find(setValidationError);
-      if (invalid) return Alert.alert("Check set values", setValidationError(invalid) ?? "Enter valid values before completing this exercise.");
+      const invalidIndex = exercise.sets.findIndex((set, index) => Boolean(setValidationError(set, exercise, index)));
+      if (invalidIndex >= 0) return Alert.alert("Check set values", setValidationError(exercise.sets[invalidIndex], exercise, invalidIndex) ?? "Enter valid values before completing this exercise.");
     }
     exercise.sets.forEach((_, index) => onChange(exercise.id, index, { completed: !isComplete }));
     if (!isComplete) {
@@ -40,26 +41,30 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
   };
   const updateSetValue = (set: SetLog, index: number, changes: Partial<SetLog>) => {
     const next = { ...set, ...changes };
-    onChange(exercise.id, index, { ...changes, ...(set.completed && setValidationError(next) ? { completed: false } : {}) });
+    onChange(exercise.id, index, { ...changes, ...(set.completed && setValidationError(next, exercise, index) ? { completed: false } : {}) });
   };
-  const warmupCount = Math.max(0, exercise.sets.length - 2);
+  const warmupCount = workingSetStartIndex(exercise);
+  const workingSetCount = exercise.sets.length - warmupCount;
   const isIsolation = getExerciseDefinition(exercise.id)?.modality === "isolation";
+  const isThreeByFive = isThreeByFiveExercise(exercise);
   const weightOptions = useMemo(() => buildWeightOptions(exercise, weightUnit), [exercise.lastWeight, exercise.loadIncrement, exercise.loadingType, weightUnit]);
+  const totalWeightOptions = useMemo(() => buildTotalWeightOptions(exercise.lastWeight, weightUnit), [exercise.lastWeight, weightUnit]);
   return <View onLayout={(event) => onLayout?.(exercise.id, event)} style={[styles.card, highlighted && styles.cardHighlighted, isComplete && styles.cardComplete]}>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => onToggleExpanded(exercise.id)} style={[styles.exerciseHeader, !expanded && styles.exerciseHeaderCollapsed]}><View style={styles.headerMain}><View style={styles.exerciseLabelRow}><Text style={styles.exerciseNumber}>EXERCISE {String(number).padStart(2, "0")}</Text>{isComplete ? <Text style={styles.finishedBadge}>✓ FINISHED</Text> : highlighted ? <Text style={styles.nextBadge}>NEXT UP</Text> : null}</View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseMeta}>{warmupCount ? `${warmupCount} warm-up · ` : ""}2 working · {exercise.repRange[0]}–{exercise.repRange[1]} reps</Text></View><View style={styles.previous}><Text style={styles.previousLabel}>{exercise.loadingType === "plate-loaded" ? "WORKING LOAD / SIDE" : "WORKING LOAD"}</Text><Text style={styles.previousValue}>{displayExerciseWeight(exercise.lastWeight, exercise, weightUnit)} <Text style={styles.unit}>{exerciseWeightLabel(exercise, weightUnit)}</Text> × {exercise.lastReps}</Text><Text style={styles.expand}>{expanded ? "COLLAPSE ︿" : "EXPAND ﹀"}</Text></View></Pressable>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => onToggleExpanded(exercise.id)} style={[styles.exerciseHeader, !expanded && styles.exerciseHeaderCollapsed]}><View style={styles.headerMain}><View style={styles.exerciseLabelRow}><Text style={styles.exerciseNumber}>EXERCISE {String(number).padStart(2, "0")}</Text>{isComplete ? <Text style={styles.finishedBadge}>✓ FINISHED</Text> : highlighted ? <Text style={styles.nextBadge}>NEXT UP</Text> : null}</View><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseMeta}>{warmupCount ? `${warmupCount} warm-up · ` : ""}{workingSetCount} working · {isThreeByFive ? "3×5" : `${exercise.repRange[0]}–${exercise.repRange[1]} reps`}</Text></View><View style={styles.previous}><Text style={styles.previousLabel}>{isThreeByFive ? "LAST CONQUERED 3×5 · TOTAL" : exercise.loadingType === "plate-loaded" ? "WORKING LOAD / SIDE" : "WORKING LOAD"}</Text><Text style={styles.previousValue}>{isThreeByFive ? displayWeight(exercise.lastWeight, weightUnit) : displayExerciseWeight(exercise.lastWeight, exercise, weightUnit)} <Text style={styles.unit}>{isThreeByFive ? weightUnitLabel(weightUnit) : exerciseWeightLabel(exercise, weightUnit)}</Text> × {exercise.lastReps}</Text><Text style={styles.expand}>{expanded ? "COLLAPSE ︿" : "EXPAND ﹀"}</Text></View></Pressable>
     {expanded && <><View style={styles.tableHead}><Text style={[styles.head, styles.setCol]}>SET</Text><Text style={[styles.head, styles.inputCol]}>{exerciseWeightLabel(exercise, weightUnit).toUpperCase()}</Text><Text style={[styles.head, styles.inputCol]}>REPS</Text></View>
-    {exercise.sets.map((set, index) => { const error = setValidationError(set); const working = isWorkingSet(exercise, index); return <View key={index}><View style={[styles.setRow, isComplete && styles.setRowDone, error && styles.setRowInvalid]}><View style={styles.setCol}><Text style={styles.setNumber}>{index + 1}</Text><Text style={[styles.setRole, working && styles.setRoleWorking]}>{working ? "WORK" : "WARM"}</Text></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} weight (${exerciseWeightLabel(exercise, weightUnit)})`} value={set.weight} startingValue={index ? exercise.sets[index - 1].weight : set.weight} options={weightOptions} disabled={!editable || isComplete} onChange={(weight) => updateSetValue(set, index, { weight })} /></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} set ${index + 1} reps`} value={set.reps} options={REP_OPTIONS.filter((option) => option.value <= exercise.repRange[1])} disabled={!editable || isComplete} onChange={(reps) => updateSetValue(set, index, { reps })} /></View></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
+    {exercise.sets.map((set, index) => { const error = setValidationError(set, exercise, index); const working = isWorkingSet(exercise, index); return <View key={index}><View style={[styles.setRow, isComplete && styles.setRowDone, error && styles.setRowInvalid]}><View style={styles.setCol}><Text style={styles.setNumber}>{index + 1}</Text><Text style={[styles.setRole, working && styles.setRoleWorking]}>{working ? "WORK" : "WARM"}</Text></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} weight (${exerciseWeightLabel(exercise, weightUnit)})`} value={set.weight} startingValue={index ? exercise.sets[index - 1].weight : set.weight} options={weightOptions} disabled={!editable || isComplete} onChange={(weight) => updateSetValue(set, index, { weight })} /></View><View style={styles.inputCol}><NumberPicker label={`${exercise.name} set ${index + 1} reps`} value={set.reps} options={REP_OPTIONS.filter((option) => option.value >= (isThreeByFive ? (working ? 5 : 3) : 6) && option.value <= (isThreeByFive ? 5 : exercise.repRange[1]))} disabled={!editable || isComplete} onChange={(reps) => updateSetValue(set, index, { reps })} /></View></View>{editable && error && <Text style={styles.setError}>{error}</Text>}</View>; })}
+    {!editable && isThreeByFive && onWorkingLoadChange && <View style={styles.loadingType}><Text style={styles.loadingLabel}>LAST 3×5 TOTAL · INCLUDES 20 KG BAR</Text><NumberPicker label={`${exercise.name} last completed 3×5 total (${weightUnitLabel(weightUnit)})`} value={exercise.lastWeight} startingValue={exercise.lastWeight} options={totalWeightOptions} onChange={(weight) => onWorkingLoadChange(exercise.id, weight)} /></View>}
     {editable && <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isComplete }} onPress={toggleExercise} style={[styles.exerciseToggle, isComplete && styles.exerciseToggleDone]}><Text style={[styles.exerciseToggleText, isComplete && styles.exerciseToggleTextDone]}>{isComplete ? "✓ FINISHED · TAP TO REOPEN" : "FINISH EXERCISE"}</Text></Pressable>}
     {onMove && <View style={styles.moveActions}><Pressable disabled={!canMoveUp} onPress={() => onMove(exercise.id, -1)} style={[styles.moveButton, !canMoveUp && styles.moveDisabled]}><Text style={styles.moveText}>↑ MOVE UP</Text></Pressable><Pressable disabled={!canMoveDown} onPress={() => onMove(exercise.id, 1)} style={[styles.moveButton, !canMoveDown && styles.moveDisabled]}><Text style={styles.moveText}>↓ MOVE DOWN</Text></Pressable></View>}
-    {onLoadingType && !exercise.loadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>SELECT MACHINE LOADING · SAVED PERMANENTLY</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={styles.loadingChoice}><Text style={styles.loadingChoiceText}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED · PER SIDE"}</Text></Pressable>)}</View></View>}
-    {!editable && !isIsolation && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 8 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
+    {onLoadingType && !isThreeByFive && !exercise.loadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>SELECT MACHINE LOADING · SAVED PERMANENTLY</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={styles.loadingChoice}><Text style={styles.loadingChoiceText}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED · PER SIDE"}</Text></Pressable>)}</View></View>}
+    {!isIsolation && !isThreeByFive && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 8 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
     {onReplace && <Pressable onPress={() => onReplace(exercise.id)} style={styles.replace}><Text style={styles.replaceText}>REPLACE WITH ANY EXERCISE</Text></Pressable>}
     {exercise.selectionReason && <Text style={styles.reason}>COACH: {exercise.selectionReason}</Text>}
     <Text style={styles.tip}>{progression(exercise, weightUnit)}</Text></>}
   </View>;
 }
 
-const REP_OPTIONS: NumberOption[] = Array.from({ length: 45 }, (_, index) => ({ value: index + 6, label: String(index + 6) }));
+const REP_OPTIONS: NumberOption[] = Array.from({ length: 48 }, (_, index) => ({ value: index + 3, label: String(index + 3) }));
 
 function buildWeightOptions(exercise: Exercise, unit: WeightUnit): NumberOption[] {
   const maximumStored = Math.max(exercise.loadingType === "plate-loaded" ? 600 : 300, exercise.lastWeight + storedExerciseWeight(20, exercise, unit));
@@ -67,6 +72,13 @@ function buildWeightOptions(exercise: Exercise, unit: WeightUnit): NumberOption[
   const values = Array.from({ length: maximumDisplayed + 1 }, (_, displayed) => storedExerciseWeight(displayed, exercise, unit));
   exercise.sets.forEach((set) => { if (!values.includes(set.weight)) values.push(set.weight); });
   return values.sort((a, b) => a - b).map((value) => ({ value, label: String(displayExerciseWeight(value, exercise, unit)) }));
+}
+
+function buildTotalWeightOptions(currentWeight: number, unit: WeightUnit): NumberOption[] {
+  const maximum = Math.max(300, currentWeight + 50);
+  const values = [0, ...Array.from({ length: Math.floor((maximum - 20) / 2.5) + 1 }, (_, index) => 20 + index * 2.5)];
+  if (!values.includes(currentWeight)) values.push(currentWeight);
+  return values.sort((a, b) => a - b).map((value) => ({ value, label: String(displayWeight(value, unit)) }));
 }
 
 const styles = StyleSheet.create({

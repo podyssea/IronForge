@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, repeatSessionFromRecord, replaceWorkoutExercise, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription } from "./training";
+import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -68,6 +68,41 @@ describe("set validation and session calculations", () => {
 });
 
 describe("active session lifecycle", () => {
+  it("builds the squat and conventional deadlift into a calculated 3x5 ramp", () => {
+    const source = initialFourDaySplit()[0].exercises[0];
+    const workout = { id: "strength", title: "Strength", focus: "3x5", exercises: [
+      { ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 5 },
+      { ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 5 },
+    ] };
+    const session = startActiveSession(workout);
+    expect(session.exercises[0]).toMatchObject({ targetSets: 6, repRange: [5, 5] });
+    expect(session.exercises[0].sets.map((set) => [set.weight, set.reps])).toEqual([[40, 5], [60, 5], [80, 3], [100, 5], [100, 5], [100, 5]]);
+    expect(displayExerciseWeight(100, session.exercises[0], "kg")).toBe(40);
+    expect(storedExerciseWeight(40, session.exercises[0], "kg")).toBe(100);
+    expect(session.exercises[1].sets.map((set) => set.weight)).toEqual([60, 90, 120, 150, 150, 150]);
+    expect(workingSets(session.exercises[0])).toHaveLength(3);
+  });
+
+  it("updates a 3x5 load only after all three working sets are conquered", () => {
+    const source = initialFourDaySplit()[0].exercises[0];
+    const workout = { id: "strength", title: "Strength", focus: "3x5", exercises: [{ ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 5 }] };
+    const session = startActiveSession(workout);
+    session.exercises[0].sets.slice(-3).forEach((set, index) => Object.assign(set, { weight: 102.5, reps: 5, completed: index < 2 }));
+    expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(100);
+    session.exercises[0].sets.at(-1)!.completed = true;
+    expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(102.5);
+  });
+
+  it("resizes a live exercise without clearing logged sets", () => {
+    const exercise = startActiveSession(initialFourDaySplit()[0]).exercises[0];
+    exercise.sets[0] = { weight: 60, reps: 8, completed: true };
+    const expanded = resizeActiveExerciseSets(exercise, exercise.targetSets + 1);
+    expect(expanded.sets[0]).toEqual({ weight: 60, reps: 8, completed: true });
+    expect(expanded.sets.at(-1)?.completed).toBe(false);
+    const reduced = resizeActiveExerciseSets(expanded, exercise.targetSets);
+    expect(reduced.sets[0]).toEqual({ weight: 60, reps: 8, completed: true });
+  });
+
   it("clones a template and resets completion without mutating it", () => {
     const workout = initialFourDaySplit()[0];
     workout.exercises[0].sets[0].completed = true;

@@ -1,6 +1,6 @@
 import { CoachingProfile } from "./coaching";
 import { EXERCISE_LIBRARY, ExerciseDefinition, ExperienceLevel, MovementPattern, TrainingStyle } from "./exerciseLibrary";
-import { Exercise, SessionRecord, Workout } from "./training";
+import { Exercise, normalizeExercisePrescription, SessionRecord, Workout } from "./training";
 
 type DayTemplate = { name: string; focus: string; patterns: MovementPattern[] };
 
@@ -162,7 +162,7 @@ function buildExercise(definition: ExerciseDefinition, goal: TrainingStyle, know
   const repRange: [number, number] = [Math.min(maximumReps, Math.max(6, prescribedRange[0])), Math.min(maximumReps, Math.max(6, prescribedRange[1]))];
   const lastWeight = known?.lastWeight ?? 0;
   const lastReps = Math.min(maximumReps, Math.max(6, known?.lastReps ?? repRange[0]));
-  return {
+  return normalizeExercisePrescription({
     id: definition.id,
     name: definition.name,
     targetSets,
@@ -174,7 +174,7 @@ function buildExercise(definition: ExerciseDefinition, goal: TrainingStyle, know
       : `${definition.movementPattern.replaceAll("-", " ")} for ${definition.primaryMuscles.join(" and ")}; matches ${goal.replaceAll("-", " ")} and available ${definition.equipment.filter((item) => availableEquipment.includes(item)).join("/")}.`,
     restSeconds: definition.trainingRole === "heavy-compound" ? 180 : definition.trainingRole === "stable-compound" ? 150 : 90,
     sets: Array.from({ length: targetSets }, (_, index) => ({ weight: known?.sets[index]?.weight ?? lastWeight, reps: Math.min(maximumReps, Math.max(6, known?.sets[index]?.reps ?? lastReps)), completed: false })),
-  };
+  });
 }
 
 function formatGoal(goal: TrainingStyle): string {
