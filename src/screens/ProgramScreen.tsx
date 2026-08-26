@@ -38,7 +38,7 @@ export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutin
     <Text style={styles.builderLabel}>SIX-WEEK ROUTINE</Text>
     <View style={styles.routineCard}>
       <View style={styles.routineHeader}><Text style={styles.routineTitle}>WEEK {currentRoutineWeek} OF 6</Text><Text style={styles.routineBadge}>{routineChangeDeferred ? "READY" : "ACTIVE"}</Text></View>
-      <Text style={styles.routineText}>{routineChangeDeferred ? "You kept your current routine. Refresh it whenever you are ready." : "After six weeks, Ki will offer a refreshed routine that keeps your compound exercises and rotates isolation work."}</Text>
+      <Text style={styles.routineText}>{routineChangeDeferred ? "You kept your current routine. Refresh it whenever you are ready." : "After six weeks, GymJournal will offer a refreshed routine that keeps your compound exercises and rotates isolation work."}</Text>
       <Pressable onPress={onRotateRoutine} style={styles.routineAction}><Text style={styles.routineActionText}>REFRESH ROUTINE</Text></Pressable>
     </View>
     <Text style={styles.builderLabel}>DATA & BACKUP</Text>

@@ -84,7 +84,7 @@ export function migrateStoredState(value: unknown): AppState | null {
     case 11:
       return isStoredAppStateV11(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings } : null;
     default:
-      console.warn(`Ki: unsupported storage schema version ${value.schemaVersion}.`);
+      console.warn(`GymJournal: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
   }
 }
