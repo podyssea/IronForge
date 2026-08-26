@@ -40,7 +40,10 @@ function exercise(id: string, name: string, targetSets: number, repRange: [numbe
 }
 
 function hydrate(items: SeedExercise[]): Exercise[] {
-  return items.map((item) => normalizeExercisePrescription({ ...item, sets: Array.from({ length: item.targetSets }, () => ({ weight: item.lastWeight, reps: item.lastReps, completed: false })) }));
+  return items.map((item) => {
+    const targetSets = getExerciseDefinition(item.id)?.modality === "isolation" ? 3 : item.targetSets;
+    return normalizeExercisePrescription({ ...item, targetSets, sets: Array.from({ length: targetSets }, () => ({ weight: item.lastWeight, reps: item.lastReps, completed: false })) });
+  });
 }
 
 function withKnownLoads(workouts: Workout[], existing: Workout[]): Workout[] {
@@ -284,19 +287,33 @@ function latestPerformedExercise(records: SessionRecord[], exerciseId: string): 
 }
 
 export function applySessionPerformance(workouts: Workout[], session: ActiveSession): Workout[] {
-  if (session.deload) return workouts;
+  if (session.deload) {
+    const source = workouts.find((workout) => workout.id === session.workoutId);
+    const changedSetCount = source?.exercises.some((exercise) => session.exercises.find((performed) => performed.id === exercise.id)?.targetSets !== exercise.targetSets);
+    if (!changedSetCount) return workouts;
+  }
   return workouts.map((workout) => workout.id !== session.workoutId ? workout : {
     ...workout,
     exercises: workout.exercises.map((exercise) => {
       const performed = session.exercises.find((item) => item.id === exercise.id);
-      if (performed && isThreeByFiveExercise(performed) && workingSets(performed).filter((set, index) => set.completed && !setValidationError(set, performed, workingSetStartIndex(performed) + index) && set.reps >= 5).length < 3) return exercise;
-      const best = performed ? bestCompletedWorkingSet(performed) : undefined;
-      if (!best) return exercise;
-      return applyWarmupLoads({
+      if (!performed) return exercise;
+      const resized = {
         ...exercise,
+        targetSets: performed.targetSets,
+        sets: Array.from({ length: performed.targetSets }, (_, index) => ({
+          ...(exercise.sets[index] ?? exercise.sets.at(-1) ?? performed.sets[index]),
+          completed: false,
+        })),
+      };
+      if (session.deload) return performed.targetSets === exercise.targetSets ? exercise : applyWarmupLoads(resized, exercise.lastWeight);
+      if (isThreeByFiveExercise(performed) && workingSets(performed).filter((set, index) => set.completed && !setValidationError(set, performed, workingSetStartIndex(performed) + index) && set.reps >= 5).length < 3) return applyWarmupLoads(resized, exercise.lastWeight);
+      const best = bestCompletedWorkingSet(performed);
+      if (!best) return applyWarmupLoads(resized, exercise.lastWeight);
+      return applyWarmupLoads({
+        ...resized,
         lastWeight: best.weight,
         lastReps: best.reps,
-        sets: exercise.sets.map((set, index) => ({ ...(performed?.sets[index] ?? set), completed: false })),
+        sets: performed.sets.map((set) => ({ ...set, completed: false })),
       }, best.weight);
     }),
   });
@@ -414,9 +431,9 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
     const sourceSets = Array.from({ length: 6 }, (_, index) => exercise.sets[index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: 5, completed: false });
     return applyWarmupLoads({ ...exercise, targetSets: 6, repRange: [5, 5], lastReps: 5, sets: sourceSets }, exercise.lastWeight);
   }
-  const maximumReps = modality === "compound" ? 10 : 12;
+  const maximumReps = modality === "compound" ? 10 : modality === "isolation" ? 20 : 12;
   const minimumReps = Math.min(maximumReps, Math.max(6, exercise.repRange[0]));
-  const targetSets = modality === "isolation" ? 3 : exercise.targetSets;
+  const targetSets = exercise.targetSets;
   const repRange: [number, number] = [minimumReps, Math.min(maximumReps, Math.max(minimumReps, exercise.repRange[1]))];
   return {
     ...exercise,

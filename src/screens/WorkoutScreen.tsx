@@ -39,14 +39,19 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
   const [restNotificationId, setRestNotificationId] = useState<string | null>(null);
   const [restExerciseName, setRestExerciseName] = useState("Exercise");
   const [now, setNow] = useState(Date.now());
-  const [expandedExerciseIds, setExpandedExerciseIds] = useState<Set<string>>(() => new Set(displayedWorkout.exercises[0] ? [displayedWorkout.exercises[0].id] : []));
-  const [highlightedExerciseId, setHighlightedExerciseId] = useState<string | null>(displayedWorkout.exercises[0]?.id ?? null);
+  const [expandedExerciseIds, setExpandedExerciseIds] = useState<Set<string>>(() => new Set(activeSession?.focusedExerciseId ? [activeSession.focusedExerciseId] : []));
+  const [highlightedExerciseId, setHighlightedExerciseId] = useState<string | null>(activeSession?.focusedExerciseId ?? null);
   useEffect(() => {
+    if (!activeSession) {
+      setExpandedExerciseIds(new Set());
+      setHighlightedExerciseId(null);
+      return;
+    }
     const saved = activeSession?.focusedExerciseId && displayedWorkout.exercises.some((exercise) => exercise.id === activeSession.focusedExerciseId) ? activeSession.focusedExerciseId : null;
     const next = saved ?? displayedWorkout.exercises.find((exercise) => !exercise.sets.every((set) => set.completed))?.id ?? null;
     setExpandedExerciseIds(new Set(next ? [next] : []));
-    setHighlightedExerciseId(activeSession ? next : null);
-    if (activeSession && activeSession.focusedExerciseId !== next) onFocusedExerciseChange(next);
+    setHighlightedExerciseId(next);
+    if (activeSession.focusedExerciseId !== next) onFocusedExerciseChange(next);
   }, [activeSession?.id, activeSession?.focusedExerciseId, displayedWorkout.id]);
   useEffect(() => {
     if (!restEndsAt) return;

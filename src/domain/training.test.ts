@@ -134,6 +134,35 @@ describe("active session lifecycle", () => {
     expect(updated[0].exercises[1].lastWeight).toBe(workouts[0].exercises[1].lastWeight);
     expect(updated[1]).toBe(workouts[1]);
   });
+
+  it("persists added and removed set counts after a workout finishes", () => {
+    const workouts = initialFourDaySplit();
+    const session = startActiveSession(workouts[0]);
+    session.exercises[0] = resizeActiveExerciseSets(session.exercises[0], 5);
+    session.exercises[1] = resizeActiveExerciseSets(session.exercises[1], 2);
+    session.exercises[0].sets.at(-1)!.completed = true;
+
+    const updated = applySessionPerformance(workouts, session);
+    expect(updated[0].exercises[0]).toMatchObject({ targetSets: 5 });
+    expect(updated[0].exercises[0].sets).toHaveLength(5);
+    expect(updated[0].exercises[1]).toMatchObject({ targetSets: 2 });
+    expect(updated[0].exercises[1].sets).toHaveLength(2);
+    expect(startActiveSession(updated[0]).exercises.map((exercise) => exercise.sets.length).slice(0, 2)).toEqual([5, 2]);
+  });
+
+  it("preserves isolation set counts and reps above twelve", () => {
+    const workout = initialFourDaySplit()[0];
+    const isolationIndex = workout.exercises.findIndex((exercise) => getExerciseDefinition(exercise.id)?.modality === "isolation");
+    const isolation = resizeActiveExerciseSets(workout.exercises[isolationIndex], 4);
+    isolation.lastReps = 18;
+    isolation.sets = isolation.sets.map((set) => ({ ...set, reps: 18 }));
+    workout.exercises[isolationIndex] = isolation;
+
+    const normalized = startActiveSession(workout).exercises[isolationIndex];
+    expect(normalized.targetSets).toBe(4);
+    expect(normalized.sets).toHaveLength(4);
+    expect(normalized.sets.every((set) => set.reps === 18)).toBe(true);
+  });
 });
 
 describe("workout deload", () => {
