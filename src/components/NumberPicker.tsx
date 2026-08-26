@@ -7,13 +7,14 @@ export function NumberPicker({ label, value, options, startingValue = value, dis
   const [open, setOpen] = useState(false);
   const listRef = useRef<FlatList<NumberOption>>(null);
   const selected = options.find((option) => option.value === value) ?? { value, label: String(value) };
+  const pickerDisabled = disabled || options.length <= 1;
   useEffect(() => {
     if (!open) return;
     const index = Math.max(0, options.findIndex((option) => option.value === startingValue));
     setTimeout(() => listRef.current?.scrollToIndex({ index, viewPosition: .45, animated: false }), 0);
   }, [open, options, startingValue]);
   return <>
-    <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel={`${label}: ${selected.label}`} onPress={() => setOpen(true)} style={[styles.trigger, disabled && styles.triggerDisabled]}><Text style={[styles.triggerText, disabled && styles.triggerTextDisabled]}>{selected.label}</Text><Text style={styles.chevron}>⌄</Text></Pressable>
+    <Pressable disabled={pickerDisabled} accessibilityRole="button" accessibilityLabel={`${label}: ${selected.label}`} onPress={() => setOpen(true)} style={[styles.trigger, disabled && styles.triggerDisabled]}><Text style={[styles.triggerText, disabled && styles.triggerTextDisabled]}>{selected.label}</Text>{options.length > 1 && <Text style={styles.chevron}>⌄</Text>}</Pressable>
     <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
       <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
