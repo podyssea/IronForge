@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, applySessionPerformance, applyWarmupLoads, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
+import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWorkingLoadPreservingWarmups, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./src/domain/programGenerator";
 import { deleteSessionRecord, recentSixWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
@@ -31,6 +31,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [replacementExerciseId, setReplacementExerciseId] = useState<string | null>(null);
+  const [addingExercise, setAddingExercise] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [deloadWorkoutIds, setDeloadWorkoutIds] = useState<Set<string>>(() => new Set());
@@ -88,7 +89,7 @@ export default function App() {
 
   const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
   const workout = workouts[selectedWorkoutIndex];
-  const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises } : { ...workout, exercises: workout.exercises.map((exercise) => applyWarmupLoads(exercise)) };
+  const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises } : workout;
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && !setValidationError(set, exercise, index)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);
@@ -120,7 +121,7 @@ export default function App() {
         ...current,
         exercises: current.exercises.map((exercise) => {
           if (exercise.id !== exerciseId) return exercise;
-          const recalculated = applyWarmupLoads({ ...exercise, lastWeight: weight, lastReps: 5 }, weight);
+          const recalculated = applyWorkingLoadPreservingWarmups(exercise, weight);
           return {
             ...recalculated,
             sets: recalculated.sets.map((set, index) => exercise.sets[index]?.completed ? exercise.sets[index] : set),
@@ -131,7 +132,7 @@ export default function App() {
     }
     setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
       ...item,
-      exercises: item.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads({ ...exercise, lastWeight: weight, lastReps: 5 }, weight)),
+      exercises: item.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWorkingLoadPreservingWarmups(exercise, weight)),
     }));
   }
 
@@ -255,8 +256,46 @@ export default function App() {
   }
 
   function openReplacement(exerciseId: string) {
+    setAddingExercise(false);
     setReplacementExerciseId(exerciseId);
     setView("library");
+  }
+
+  function openExerciseAddition() {
+    setReplacementExerciseId(null);
+    setAddingExercise(true);
+    setView("library");
+  }
+
+  function chooseAddition(definition: ExerciseDefinition) {
+    const targetWorkoutId = activeSession?.workoutId ?? workout.id;
+    if (activeSession) {
+      const temporaryWorkoutId = `active-${activeSession.id}`;
+      const activeWorkout: Workout = { id: temporaryWorkoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises };
+      const updatedActive = addWorkoutExercise([...workouts, activeWorkout], temporaryWorkoutId, definition, records).find((item) => item.id === temporaryWorkoutId);
+      if (updatedActive) setActiveSession((current) => current ? { ...current, exercises: updatedActive.exercises } : current);
+    }
+    setWorkouts((current) => addWorkoutExercise(current, targetWorkoutId, definition, records));
+    setAddingExercise(false);
+    setView("log");
+    Alert.alert("Exercise added", `${definition.name} was added to this workout as a separate exercise.`);
+  }
+
+  function requestExerciseRemoval(exerciseId: string) {
+    const exercise = displayedWorkout.exercises.find((item) => item.id === exerciseId);
+    if (displayedWorkout.exercises.length <= 1) return Alert.alert("Exercise required", "A workout must contain at least one exercise.");
+    Alert.alert("Remove exercise?", `${exercise?.name ?? "This exercise"} will be removed from this workout.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => {
+        const targetWorkoutId = activeSession?.workoutId ?? workout.id;
+        setWorkouts((current) => removeWorkoutExercise(current, targetWorkoutId, exerciseId));
+        setActiveSession((current) => {
+          if (!current || current.exercises.length <= 1) return current;
+          const exercises = current.exercises.filter((item) => item.id !== exerciseId);
+          return { ...current, focusedExerciseId: current.focusedExerciseId === exerciseId ? exercises[0]?.id : current.focusedExerciseId, exercises };
+        });
+      } },
+    ]);
   }
 
   function chooseReplacement(replacement: ExerciseDefinition) {
@@ -278,6 +317,7 @@ export default function App() {
       setWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement, records));
     }
     setReplacementExerciseId(null);
+    setAddingExercise(false);
     setView("log");
     Alert.alert("Exercise replaced", `${replaced?.name ?? "Exercise"} was replaced with ${replacement.name}. Your set and rep prescription was retained${activeSession ? " for this session" : ""}.`);
   }
@@ -333,6 +373,7 @@ export default function App() {
     if (workoutIndex >= 0) setSelected(workoutIndex);
     setActiveSession(repeated);
     setReplacementExerciseId(null);
+    setAddingExercise(false);
     setView("log");
     Alert.alert(deload ? "Deload ready" : "Workout ready", `${record.workoutTitle.split(" · ").pop()} has been rebuilt using the latest normal working weight recorded for each exercise${deload ? ", reduced to 75%" : ""}.`);
   }
@@ -388,6 +429,7 @@ export default function App() {
     const activeIndex = state.activeSession ? state.workouts.findIndex((item) => item.id === state.activeSession?.workoutId) : 0;
     setSelected(activeIndex >= 0 ? activeIndex : 0);
     setReplacementExerciseId(null);
+    setAddingExercise(false);
     setView(state.activeSession ? "log" : "history");
     Alert.alert("Backup restored", "Your GymJournal progress and settings are back on this phone.");
   }
@@ -396,8 +438,8 @@ export default function App() {
     <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
     <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
-      <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={replacementExerciseId ? chooseReplacement : undefined} onCancelReplacement={() => { setReplacementExerciseId(null); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByFiveWorkingLoad} />}
+      <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setAddingExercise(false); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen selectionMode={addingExercise ? "add" : replacementExerciseId ? "replace" : undefined} replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : addingExercise ? displayedWorkout.exercises.map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={addingExercise ? chooseAddition : replacementExerciseId ? chooseReplacement : undefined} onCancelSelection={() => { setReplacementExerciseId(null); setAddingExercise(false); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByFiveWorkingLoad} />}
     </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;
