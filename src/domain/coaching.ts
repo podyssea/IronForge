@@ -1,5 +1,5 @@
 import { Equipment, ExperienceLevel, TrainingStyle } from "./exerciseLibrary";
-import { applyWarmupLoads, Exercise, loadIncrement, roundExerciseLoad, SessionRecord, workingSets, Workout } from "./training";
+import { applyWorkingLoadPreservingWarmups, Exercise, loadIncrement, roundExerciseLoad, SessionRecord, workingSets, Workout } from "./training";
 
 export type CoachingProfile = {
   goal: TrainingStyle;
@@ -106,9 +106,6 @@ function averageReps(exercise: Exercise): number {
 export function applyCoachingRecommendation(workouts: Workout[], recommendation: CoachingRecommendation, selectedWeight: number): Workout[] {
   return workouts.map((workout) => workout.id !== recommendation.workoutId ? workout : {
     ...workout,
-    exercises: workout.exercises.map((exercise) => exercise.id !== recommendation.exerciseId ? exercise : applyWarmupLoads({
-      ...exercise,
-      lastWeight: roundExerciseLoad(selectedWeight, exercise),
-    }, roundExerciseLoad(selectedWeight, exercise))),
+    exercises: workout.exercises.map((exercise) => exercise.id !== recommendation.exerciseId ? exercise : applyWorkingLoadPreservingWarmups(exercise, roundExerciseLoad(selectedWeight, exercise))),
   });
 }

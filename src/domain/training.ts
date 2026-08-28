@@ -42,7 +42,7 @@ function exercise(id: string, name: string, targetSets: number, repRange: [numbe
 function hydrate(items: SeedExercise[]): Exercise[] {
   return items.map((item) => {
     const targetSets = getExerciseDefinition(item.id)?.modality === "isolation" ? 3 : item.targetSets;
-    return normalizeExercisePrescription({ ...item, targetSets, sets: Array.from({ length: targetSets }, () => ({ weight: item.lastWeight, reps: item.lastReps, completed: false })) });
+    return applyWarmupLoads(normalizeExercisePrescription({ ...item, targetSets, sets: Array.from({ length: targetSets }, () => ({ weight: item.lastWeight, reps: item.lastReps, completed: false })) }));
   });
 }
 
@@ -124,7 +124,10 @@ export function isSessionComplete(exercises: Exercise[]): boolean {
 }
 
 export function startActiveSession(workout: Workout, now = new Date()): ActiveSession {
-  const exercises = workout.exercises.map((exercise) => applyWarmupLoads(normalizeExercisePrescription(exercise)));
+  const exercises = workout.exercises.map((exercise) => {
+    const normalized = normalizeExercisePrescription(exercise);
+    return { ...normalized, sets: normalized.sets.map((set) => ({ ...set, completed: false })) };
+  });
   return {
     id: String(now.getTime()),
     workoutId: workout.id,
@@ -183,6 +186,21 @@ export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.la
       }
       const scale = warmupCount === 2 && index === 0 ? 0.5 : index < warmupCount ? 0.7 : 1;
       return { ...set, weight: roundExerciseLoad(workingWeight * scale, exercise), completed: false };
+    }),
+  };
+}
+
+export function applyWorkingLoadPreservingWarmups(exercise: Exercise, workingWeight: number): Exercise {
+  const workingStart = workingSetStartIndex(exercise);
+  return {
+    ...exercise,
+    lastWeight: workingWeight,
+    lastReps: isThreeByFiveExercise(exercise) ? 5 : exercise.lastReps,
+    sets: exercise.sets.map((set, index) => index < workingStart ? set : {
+      ...set,
+      weight: workingWeight,
+      reps: isThreeByFiveExercise(exercise) ? 5 : set.reps,
+      completed: false,
     }),
   };
 }
@@ -260,7 +278,8 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
       const best = bestCompletedWorkingSet(latest);
       const workingWeight = best?.weight ?? latest.lastWeight ?? recordedExercise.lastWeight;
       const lastReps = best?.reps ?? latest.lastReps ?? recordedExercise.lastReps;
-      return applyWarmupLoads(normalizeExercisePrescription({
+      const workingStart = workingSetStartIndex(recordedExercise);
+      return normalizeExercisePrescription({
         ...recordedExercise,
         loadingType: current?.loadingType ?? latest.loadingType ?? recordedExercise.loadingType,
         loadIncrement: current?.loadIncrement ?? latest.loadIncrement ?? recordedExercise.loadIncrement,
@@ -268,11 +287,11 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
         lastWeight: workingWeight,
         lastReps,
         sets: Array.from({ length: recordedExercise.sets.length }, (_, index) => ({
-          weight: workingWeight,
+          weight: index < workingStart ? latest.sets[index]?.weight ?? recordedExercise.sets[index]?.weight ?? workingWeight : workingWeight,
           reps: recordedExercise.sets[index]?.reps || recordedExercise.repRange[0],
           completed: false,
         })),
-      }), workingWeight);
+      });
     }),
   };
   return deload ? applyDeloadToSession(session) : session;
@@ -289,8 +308,13 @@ function latestPerformedExercise(records: SessionRecord[], exerciseId: string): 
 export function applySessionPerformance(workouts: Workout[], session: ActiveSession): Workout[] {
   if (session.deload) {
     const source = workouts.find((workout) => workout.id === session.workoutId);
-    const changedSetCount = source?.exercises.some((exercise) => session.exercises.find((performed) => performed.id === exercise.id)?.targetSets !== exercise.targetSets);
-    if (!changedSetCount) return workouts;
+    const changedPrescription = source?.exercises.some((exercise) => {
+      const performed = session.exercises.find((item) => item.id === exercise.id);
+      if (!performed || performed.targetSets !== exercise.targetSets) return true;
+      const expectedDeload = applyWarmupLoads(exercise, roundExerciseLoad(exercise.lastWeight * 0.75, exercise));
+      return performed.sets.slice(0, workingSetStartIndex(performed)).some((set, index) => set.weight !== expectedDeload.sets[index]?.weight);
+    });
+    if (!changedPrescription) return workouts;
   }
   return workouts.map((workout) => workout.id !== session.workoutId ? workout : {
     ...workout,
@@ -305,16 +329,27 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
           completed: false,
         })),
       };
-      if (session.deload) return performed.targetSets === exercise.targetSets ? exercise : applyWarmupLoads(resized, exercise.lastWeight);
-      if (isThreeByFiveExercise(performed) && workingSets(performed).filter((set, index) => set.completed && !setValidationError(set, performed, workingSetStartIndex(performed) + index) && set.reps >= 5).length < 3) return applyWarmupLoads(resized, exercise.lastWeight);
+      const preservePerformedWarmups = (workingWeight: number, lastReps = exercise.lastReps): Exercise => {
+        const workingStart = workingSetStartIndex(performed);
+        return {
+          ...resized,
+          lastWeight: workingWeight,
+          lastReps,
+          sets: performed.sets.map((set, index) => ({
+            ...set,
+            weight: index < workingStart ? set.weight : workingWeight,
+            completed: false,
+          })),
+        };
+      };
+      if (session.deload) {
+        const expectedDeload = applyWarmupLoads(exercise, roundExerciseLoad(exercise.lastWeight * 0.75, exercise));
+        return performed.targetSets === exercise.targetSets && performed.sets.slice(0, workingSetStartIndex(performed)).every((set, index) => set.weight === expectedDeload.sets[index]?.weight) ? exercise : preservePerformedWarmups(exercise.lastWeight);
+      }
+      if (isThreeByFiveExercise(performed) && workingSets(performed).filter((set, index) => set.completed && !setValidationError(set, performed, workingSetStartIndex(performed) + index) && set.reps >= 5).length < 3) return preservePerformedWarmups(exercise.lastWeight);
       const best = bestCompletedWorkingSet(performed);
-      if (!best) return applyWarmupLoads(resized, exercise.lastWeight);
-      return applyWarmupLoads({
-        ...resized,
-        lastWeight: best.weight,
-        lastReps: best.reps,
-        sets: performed.sets.map((set) => ({ ...set, completed: false })),
-      }, best.weight);
+      if (!best) return preservePerformedWarmups(exercise.lastWeight);
+      return preservePerformedWarmups(best.weight, best.reps);
     }),
   });
 }
@@ -340,6 +375,44 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
       lastReps: bestReps ?? exercise.repRange[0],
       sets: Array.from({ length: exercise.targetSets }, () => ({ weight: bestWeight, reps: bestReps ?? exercise.repRange[0], completed: false })),
     }), bestWeight)),
+  });
+}
+
+export function addWorkoutExercise(workouts: Workout[], workoutId: string, definition: { id: string; name: string; modality: "compound" | "isolation"; defaultRepRanges: { hypertrophy: [number, number] } }, records: SessionRecord[] = []): Workout[] {
+  const known = workouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === definition.id);
+  const historical = records
+    .flatMap((record) => record.exercises)
+    .filter((exercise) => exercise.id === definition.id)
+    .map((exercise) => ({ exercise, best: bestCompletedWorkingSet(exercise) }))
+    .filter((item): item is { exercise: Exercise; best: SetLog } => Boolean(item.best))
+    .reduce<{ exercise: Exercise; best: SetLog } | undefined>((best, item) => !best || item.best.weight > best.best.weight || (item.best.weight === best.best.weight && item.best.reps > best.best.reps) ? item : best, undefined);
+  const workingWeight = Math.max(known?.lastWeight ?? 0, historical?.best.weight ?? 0);
+  const lastReps = historical?.best.weight === workingWeight ? historical.best.reps : known?.lastReps ?? definition.defaultRepRanges.hypertrophy[0];
+  const targetSets = definition.modality === "isolation" ? 3 : 4;
+  const added = applyWarmupLoads(normalizeExercisePrescription({
+    id: definition.id,
+    name: definition.name,
+    targetSets,
+    repRange: definition.defaultRepRanges.hypertrophy,
+    lastWeight: workingWeight,
+    lastReps,
+    loadingType: known?.loadingType ?? historical?.exercise.loadingType,
+    loadIncrement: known?.loadIncrement ?? historical?.exercise.loadIncrement,
+    restSeconds: known?.restSeconds ?? historical?.exercise.restSeconds ?? 90,
+    sets: Array.from({ length: targetSets }, () => ({ weight: workingWeight, reps: lastReps, completed: false })),
+  }), workingWeight);
+  return workouts.map((workout) => workout.id !== workoutId || workout.exercises.some((exercise) => exercise.id === definition.id) ? workout : {
+    ...workout,
+    exercises: [...workout.exercises, added],
+  });
+}
+
+export function removeWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string): Workout[] {
+  const source = workouts.find((workout) => workout.id === workoutId);
+  if (!source || source.exercises.length <= 1 || !source.exercises.some((exercise) => exercise.id === exerciseId)) return workouts;
+  return workouts.map((workout) => workout.id !== workoutId || workout.exercises.length <= 1 ? workout : {
+    ...workout,
+    exercises: workout.exercises.filter((exercise) => exercise.id !== exerciseId),
   });
 }
 
@@ -409,13 +482,13 @@ export function updateExercisePrescription(exercise: Exercise, changes: { name?:
     reps: repRange[0],
     completed: false,
   });
-  return applyWarmupLoads(normalizeExercisePrescription({
+  return normalizeExercisePrescription({
     ...exercise,
     ...changes,
     targetSets,
     repRange: [Math.max(6, repRange[0]), Math.max(repRange[0], repRange[1])],
     sets,
-  }));
+  });
 }
 
 export function resizeActiveExerciseSets(exercise: Exercise, targetSets: number): Exercise {
@@ -429,7 +502,8 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
   const modality = getExerciseDefinition(exercise.id)?.modality;
   if (isThreeByFiveExercise(exercise)) {
     const sourceSets = Array.from({ length: 6 }, (_, index) => exercise.sets[index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: 5, completed: false });
-    return applyWarmupLoads({ ...exercise, targetSets: 6, repRange: [5, 5], lastReps: 5, sets: sourceSets }, exercise.lastWeight);
+    const normalized = { ...exercise, targetSets: 6, repRange: [5, 5] as [number, number], lastReps: 5, sets: sourceSets.map((set, index) => ({ ...set, reps: [5, 5, 3, 5, 5, 5][index] ?? 5 })) };
+    return exercise.sets.length === 6 ? normalized : applyWarmupLoads(normalized, exercise.lastWeight);
   }
   const maximumReps = modality === "compound" ? 10 : modality === "isolation" ? 20 : 12;
   const minimumReps = Math.min(maximumReps, Math.max(6, exercise.repRange[0]));

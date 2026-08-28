@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySessionPerformance, applyTrainingPhase, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription, workingSets } from "./training";
+import { addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -32,7 +32,7 @@ describe("training phases", () => {
     const source = initialFourDaySplit();
     const deload = applyTrainingPhase(source, "deload");
     expect(deload[0].exercises[0].targetSets).toBe(2);
-    expect(deload[0].exercises[0].sets[0].weight).toBe(30);
+    expect(deload[0].exercises[0].sets[0].weight).toBe(15);
     expect(deload[0].exercises[0].sets.every((set) => !set.completed)).toBe(true);
   });
 
@@ -91,6 +91,17 @@ describe("active session lifecycle", () => {
     expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(100);
     session.exercises[0].sets.at(-1)!.completed = true;
     expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(102.5);
+  });
+
+  it("changes a 3x5 working target without recalculating entered warm-ups", () => {
+    const source = initialFourDaySplit()[0].exercises[0];
+    const squat = startActiveSession({ id: "strength", title: "Strength", focus: "3x5", exercises: [{ ...source, id: "back-squat", lastWeight: 100, lastReps: 5 }] }).exercises[0];
+    squat.sets[0].weight = 25;
+    squat.sets[1].weight = 45;
+    squat.sets[2].weight = 65;
+
+    const updated = applyWorkingLoadPreservingWarmups(squat, 110);
+    expect(updated.sets.map((set) => set.weight)).toEqual([25, 45, 65, 110, 110, 110]);
   });
 
   it("resizes a live exercise without clearing logged sets", () => {
@@ -216,7 +227,7 @@ describe("repeat workout", () => {
     expect(repeated.workoutTitle).toBe(original.workoutTitle);
     expect(repeated.exercises.map((exercise) => exercise.id)).toEqual(original.exercises.map((exercise) => exercise.id));
     expect(repeated.exercises[0]).toMatchObject({ lastWeight: 50, loadingType: "plate-loaded", loadIncrement: 2.5, restSeconds: 150 });
-    expect(repeated.exercises[0].sets.map((set) => set.weight)).toEqual([25, 35, 50, 50]);
+    expect(repeated.exercises[0].sets.map((set) => set.weight)).toEqual([17.5, 24.5, 50, 50]);
     expect(repeated.exercises.flatMap((exercise) => exercise.sets).every((set) => !set.completed)).toBe(true);
   });
 
@@ -243,7 +254,7 @@ describe("warm-up and working sets", () => {
   it("uses 50% and 70% warm-ups before two working sets", () => {
     const workout = initialFourDaySplit()[0];
     workout.exercises[0].lastWeight = 100;
-    const exercise = startActiveSession(workout).exercises[0];
+    const exercise = applyWarmupLoads(workout.exercises[0], 100);
     expect(exercise.sets.map((set) => set.weight)).toEqual([50, 70, 100, 100]);
   });
 
@@ -258,7 +269,7 @@ describe("warm-up and working sets", () => {
     const workout = initialFourDaySplit()[0];
     workout.exercises[0].lastWeight = 85;
     workout.exercises[0].loadingType = "pin-loaded";
-    const exercise = startActiveSession(workout).exercises[0];
+    const exercise = applyWarmupLoads(workout.exercises[0], 85);
     expect(exercise.sets.map((set) => set.weight)).toEqual([45, 60, 85, 85]);
   });
 
@@ -266,7 +277,19 @@ describe("warm-up and working sets", () => {
     const workout = initialFourDaySplit()[0];
     workout.exercises[0].lastWeight = 83;
     workout.exercises[0].loadIncrement = 2;
-    expect(startActiveSession(workout).exercises[0].sets.map((set) => set.weight)).toEqual([42, 58, 84, 84]);
+    expect(applyWarmupLoads(workout.exercises[0], 83).sets.map((set) => set.weight)).toEqual([42, 58, 84, 84]);
+  });
+
+  it("preserves manually entered warm-up weights after completion and restart", () => {
+    const workouts = initialFourDaySplit();
+    const session = startActiveSession(workouts[0]);
+    session.exercises[0].sets[0].weight = 12;
+    session.exercises[0].sets[1].weight = 27;
+    session.exercises[0].sets.slice(-2).forEach((set) => Object.assign(set, { weight: 40, reps: 8, completed: true }));
+
+    const updated = applySessionPerformance(workouts, session);
+    expect(updated[0].exercises[0].sets.map((set) => set.weight)).toEqual([12, 27, 40, 40]);
+    expect(startActiveSession(updated[0]).exercises[0].sets.map((set) => set.weight)).toEqual([12, 27, 40, 40]);
   });
 });
 
@@ -379,6 +402,26 @@ describe("modality prescriptions", () => {
   it("starts compounds at six reps and caps them at 10", () => {
     const compounds = initialFourDaySplit().flatMap((workout) => workout.exercises).filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "compound");
     expect(compounds.every((exercise) => exercise.repRange[0] >= 6 && exercise.repRange[1] <= 10)).toBe(true);
+  });
+});
+
+describe("workout exercise management", () => {
+  it("adds a distinct library exercise with its default prescription", () => {
+    const workouts = initialFourDaySplit();
+    const definition = getExerciseDefinition("cable-fly")!;
+    const updated = addWorkoutExercise(workouts, workouts[0].id, definition);
+    const added = updated[0].exercises.at(-1)!;
+    expect(added).toMatchObject({ id: "cable-fly", targetSets: 3, lastWeight: 0 });
+    expect(added.sets).toHaveLength(3);
+    expect(addWorkoutExercise(updated, updated[0].id, definition)).toEqual(updated);
+  });
+
+  it("removes an exercise without allowing an empty workout", () => {
+    const workouts = initialFourDaySplit();
+    const removed = removeWorkoutExercise(workouts, workouts[0].id, workouts[0].exercises[0].id);
+    expect(removed[0].exercises).toHaveLength(workouts[0].exercises.length - 1);
+    const single = [{ ...workouts[0], exercises: [workouts[0].exercises[0]] }];
+    expect(removeWorkoutExercise(single, single[0].id, single[0].exercises[0].id)).toBe(single);
   });
 });
 
