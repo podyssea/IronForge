@@ -4,6 +4,17 @@ import { Exercise, normalizeExercisePrescription, SessionRecord, Workout } from 
 
 type DayTemplate = { name: string; focus: string; patterns: MovementPattern[] };
 
+export type TrainingSplit = "auto" | "push-pull-legs" | "upper-lower" | "full-body" | "bro-split" | "classic-physique";
+
+export const TRAINING_SPLIT_OPTIONS: { value: TrainingSplit; label: string; detail: string }[] = [
+  { value: "auto", label: "Smart recommendation", detail: "Uses the best fit for your training days" },
+  { value: "push-pull-legs", label: "Push / Pull / Legs", detail: "Chest-shoulders-triceps, back-biceps, then legs" },
+  { value: "upper-lower", label: "Upper / Lower", detail: "Balanced upper- and lower-body sessions" },
+  { value: "full-body", label: "Full body", detail: "Each session trains the whole body" },
+  { value: "bro-split", label: "Bro split", detail: "Focused body-part sessions with high local volume" },
+  { value: "classic-physique", label: "Classic physique", detail: "CBum-inspired aesthetic specialization" },
+];
+
 const difficultyRank: Record<ExperienceLevel, number> = { beginner: 0, intermediate: 1, advanced: 2 };
 
 const templates: Record<number, DayTemplate[]> = {
@@ -56,10 +67,88 @@ const classicPhysiqueTemplates: Record<number, DayTemplate[]> = {
   ],
 };
 
+const pushPullLegsTemplates: Record<number, DayTemplate[]> = {
+  2: [
+    { name: "Push", focus: "Chest, shoulders and triceps", patterns: ["horizontal-push", "vertical-push", "horizontal-push", "shoulder-isolation", "elbow-extension", "core"] },
+    { name: "Pull & Legs", focus: "Back, biceps and complete lower body", patterns: ["vertical-pull", "horizontal-pull", "squat", "hinge", "knee-flexion", "elbow-flexion", "calf-raise"] },
+  ],
+  3: [
+    { name: "Push", focus: "Chest, shoulders and triceps", patterns: ["horizontal-push", "vertical-push", "horizontal-push", "shoulder-isolation", "elbow-extension", "elbow-extension"] },
+    { name: "Pull", focus: "Back, rear delts and biceps", patterns: ["vertical-pull", "horizontal-pull", "vertical-pull", "horizontal-pull", "shoulder-isolation", "elbow-flexion"] },
+    { name: "Legs", focus: "Quads, hamstrings, glutes and calves", patterns: ["squat", "hinge", "lunge", "knee-flexion", "hip-isolation", "calf-raise", "core"] },
+  ],
+  4: [
+    { name: "Push", focus: "Chest, shoulders and triceps", patterns: ["horizontal-push", "vertical-push", "horizontal-push", "shoulder-isolation", "elbow-extension", "elbow-extension"] },
+    { name: "Pull", focus: "Back, rear delts and biceps", patterns: ["vertical-pull", "horizontal-pull", "vertical-pull", "horizontal-pull", "shoulder-isolation", "elbow-flexion"] },
+    { name: "Legs", focus: "Quads, hamstrings, glutes and calves", patterns: ["squat", "hinge", "lunge", "knee-flexion", "hip-isolation", "calf-raise", "core"] },
+    { name: "Upper", focus: "Second upper-body growth stimulus", patterns: ["horizontal-push", "horizontal-pull", "vertical-push", "vertical-pull", "shoulder-isolation", "elbow-flexion", "elbow-extension"] },
+  ],
+  5: templates[5],
+};
+
+const upperLowerTemplates: Record<number, DayTemplate[]> = {
+  ...templates,
+  3: [
+    { name: "Upper A", focus: "Horizontal push and pull emphasis", patterns: ["horizontal-push", "horizontal-pull", "vertical-push", "vertical-pull", "shoulder-isolation", "elbow-flexion", "elbow-extension"] },
+    { name: "Lower", focus: "Quads, posterior chain and calves", patterns: ["squat", "hinge", "lunge", "knee-flexion", "hip-isolation", "calf-raise", "core"] },
+    { name: "Upper B", focus: "Vertical pull and shoulder emphasis", patterns: ["vertical-pull", "vertical-push", "horizontal-push", "horizontal-pull", "shoulder-isolation", "elbow-flexion", "elbow-extension"] },
+  ],
+};
+
+const fullBodyTemplates: Record<number, DayTemplate[]> = Object.fromEntries([2, 3, 4, 5].map((days) => [days, Array.from({ length: days }, (_, index) => ({
+  name: `Full Body ${String.fromCharCode(65 + index)}`,
+  focus: "Balanced full-body strength and hypertrophy",
+  patterns: index % 2 === 0 ? ["squat", "horizontal-push", "vertical-pull", "hinge", "vertical-push", "horizontal-pull", "core"] : ["hinge", "horizontal-pull", "horizontal-push", "lunge", "vertical-pull", "knee-flexion", "calf-raise"],
+}))])) as Record<number, DayTemplate[]>;
+
+const broSplitTemplates: Record<number, DayTemplate[]> = {
+  2: [
+    { name: "Upper", focus: "Chest, back, delts and arms", patterns: ["horizontal-push", "vertical-pull", "horizontal-pull", "vertical-push", "shoulder-isolation", "elbow-flexion", "elbow-extension"] },
+    { name: "Legs", focus: "Quads, hamstrings, glutes and calves", patterns: ["squat", "hinge", "lunge", "knee-flexion", "hip-isolation", "calf-raise", "core"] },
+  ],
+  3: [
+    { name: "Chest & Triceps", focus: "Chest detail, pressing strength and triceps", patterns: ["horizontal-push", "horizontal-push", "vertical-push", "elbow-extension", "elbow-extension", "core"] },
+    { name: "Back & Biceps", focus: "Back width, thickness and biceps", patterns: ["vertical-pull", "horizontal-pull", "vertical-pull", "horizontal-pull", "elbow-flexion", "elbow-flexion"] },
+    { name: "Legs & Shoulders", focus: "Complete legs with capped delts", patterns: ["squat", "hinge", "lunge", "knee-flexion", "shoulder-isolation", "calf-raise", "hip-isolation"] },
+  ],
+  4: [
+    { name: "Chest", focus: "Upper chest, pressing and triceps", patterns: ["horizontal-push", "horizontal-push", "vertical-push", "elbow-extension", "elbow-extension"] },
+    { name: "Back", focus: "Back width, thickness and biceps", patterns: ["vertical-pull", "horizontal-pull", "vertical-pull", "horizontal-pull", "elbow-flexion"] },
+    { name: "Legs", focus: "Quads, hamstrings, glutes and calves", patterns: ["squat", "hinge", "lunge", "knee-flexion", "hip-isolation", "calf-raise"] },
+    { name: "Shoulders & Arms", focus: "Capped delts and arm detail", patterns: ["vertical-push", "shoulder-isolation", "shoulder-isolation", "elbow-flexion", "elbow-extension", "elbow-flexion"] },
+  ],
+  5: [
+    { name: "Chest", focus: "Upper chest, pressing and triceps", patterns: ["horizontal-push", "horizontal-push", "vertical-push", "elbow-extension", "elbow-extension"] },
+    { name: "Back", focus: "Back width and thickness", patterns: ["vertical-pull", "horizontal-pull", "vertical-pull", "horizontal-pull", "shoulder-isolation"] },
+    { name: "Legs", focus: "Quads, hamstrings, glutes and calves", patterns: ["squat", "hinge", "lunge", "knee-flexion", "hip-isolation", "calf-raise"] },
+    { name: "Shoulders", focus: "Capped delts and controlled pressing", patterns: ["vertical-push", "shoulder-isolation", "shoulder-isolation", "vertical-push", "shoulder-isolation"] },
+    { name: "Arms", focus: "Biceps and triceps specialization", patterns: ["elbow-flexion", "elbow-extension", "elbow-flexion", "elbow-extension", "elbow-flexion", "elbow-extension"] },
+  ],
+};
+
+export function recommendedTrainingSplit(days: number, coachingStyle: CoachingProfile["coachingStyle"]): TrainingSplit {
+  if (days === 3) return "push-pull-legs";
+  return coachingStyle === "classic-physique" ? "classic-physique" : "upper-lower";
+}
+
+export function trainingSplitLabel(split: TrainingSplit): string {
+  return TRAINING_SPLIT_OPTIONS.find((option) => option.value === split)?.label ?? "Smart recommendation";
+}
+
 export function generateAdaptiveProgram(days: number, profile: CoachingProfile, existing: Workout[]): Workout[] {
   const boundedDays = Math.max(2, Math.min(5, days));
   const classicPhysique = profile.coachingStyle !== "balanced";
-  const dayTemplates = (classicPhysique ? classicPhysiqueTemplates : templates)[boundedDays];
+  const requestedSplit = profile.trainingSplit ?? "auto";
+  const split = requestedSplit === "auto" ? recommendedTrainingSplit(boundedDays, profile.coachingStyle) : requestedSplit;
+  const templateSet: Record<TrainingSplit, Record<number, DayTemplate[]>> = {
+    auto: templates,
+    "push-pull-legs": pushPullLegsTemplates,
+    "upper-lower": upperLowerTemplates,
+    "full-body": fullBodyTemplates,
+    "bro-split": broSplitTemplates,
+    "classic-physique": classicPhysiqueTemplates,
+  };
+  const dayTemplates = templateSet[split][boundedDays];
   const exerciseLimit = Math.max(4, Math.min(9, Math.floor((profile.sessionMinutes - 8) / 7)));
   const known = new Map(existing.flatMap((workout) => workout.exercises.map((exercise) => [exercise.id, exercise])));
 

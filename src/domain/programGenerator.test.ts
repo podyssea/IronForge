@@ -85,6 +85,18 @@ describe("adaptive program generator", () => {
     expect(generateAdaptiveProgram(4, profile, [])[0].title).toBe("Day 1 · Upper A");
   });
 
+  it("recommends and builds push, pull, legs for three-day programs regardless of coaching style", () => {
+    const balanced = generateAdaptiveProgram(3, { ...DEFAULT_COACHING_PROFILE, coachingStyle: "balanced", trainingSplit: "auto" }, []);
+    const classic = generateAdaptiveProgram(3, { ...DEFAULT_COACHING_PROFILE, coachingStyle: "classic-physique", trainingSplit: "auto" }, []);
+    expect(balanced.map((workout) => workout.title)).toEqual(["Day 1 · Push", "Day 2 · Pull", "Day 3 · Legs"]);
+    expect(classic.map((workout) => workout.title)).toEqual(["Day 1 · Push", "Day 2 · Pull", "Day 3 · Legs"]);
+  });
+
+  it("builds the explicitly selected split instead of the recommended one", () => {
+    const workouts = generateAdaptiveProgram(3, { ...DEFAULT_COACHING_PROFILE, coachingStyle: "balanced", trainingSplit: "full-body" }, []);
+    expect(workouts.map((workout) => workout.title)).toEqual(["Day 1 · Full Body A", "Day 2 · Full Body B", "Day 3 · Full Body C"]);
+  });
+
   it("rotates isolation exercises while preserving every compound", () => {
     const workouts = generateAdaptiveProgram(4, DEFAULT_COACHING_PROFILE, []);
     const compounds = workouts.flatMap((workout) => workout.exercises.filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "compound").map((exercise) => exercise.id));

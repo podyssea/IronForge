@@ -1,4 +1,5 @@
 import { Equipment, ExperienceLevel, TrainingStyle } from "./exerciseLibrary";
+import { TrainingSplit } from "./programGenerator";
 import { applyWorkingLoadPreservingWarmups, Exercise, loadIncrement, roundExerciseLoad, SessionRecord, workingSets, Workout } from "./training";
 
 export type CoachingProfile = {
@@ -9,6 +10,7 @@ export type CoachingProfile = {
   preferredExerciseIds: string[];
   excludedExerciseIds: string[];
   coachingStyle?: "balanced" | "classic-physique";
+  trainingSplit?: TrainingSplit;
 };
 
 export const DEFAULT_COACHING_PROFILE: CoachingProfile = {
@@ -19,14 +21,18 @@ export const DEFAULT_COACHING_PROFILE: CoachingProfile = {
   preferredExerciseIds: [],
   excludedExerciseIds: [],
   coachingStyle: "classic-physique",
+  trainingSplit: "auto",
 };
 
 export function fixedTrainingProfile(profile: CoachingProfile): CoachingProfile {
   return {
     ...profile,
+    goal: "hypertrophy",
+    coachingStyle: "classic-physique",
     experience: "advanced",
     sessionMinutes: 60,
     availableEquipment: ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"],
+    trainingSplit: profile.trainingSplit ?? "auto",
   };
 }
 
