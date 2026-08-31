@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
 import { normalizeExercisePrescription } from "../domain/training";
-import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, normalizeProgramPreferences, ProgramPreferences, StoredAppStateV11 } from "./migrations";
+import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, normalizeProgramPreferences, ProgramPreferences, StoredAppStateV12 } from "./migrations";
 
 const APP_STATE_KEY = "ironforge-app-state";
 const LEGACY_WORKOUTS_KEY = "ironforge-workouts-v1";
@@ -14,7 +14,7 @@ export type { AppState, ProgramPreferences } from "./migrations";
 function defaultProgram(): ProgramPreferences { return normalizeProgramPreferences({ trainingDays: 4, phase: "hypertrophy" }); }
 
 export function createDefaultAppState(): AppState {
-  return { workouts: personalBaselineWorkouts().map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercisePrescription) })), records: personalBaselineRecords(), program: defaultProgram(), activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS } };
+  return { workouts: personalBaselineWorkouts().map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercisePrescription) })), records: personalBaselineRecords(), program: defaultProgram(), activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS }, temporaryPlans: [] };
 }
 
 export async function loadAppState(): Promise<AppState> {
@@ -29,7 +29,7 @@ export async function loadAppState(): Promise<AppState> {
 }
 
 export async function saveAppState(state: AppState): Promise<void> {
-  const stored: StoredAppStateV11 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
+  const stored: StoredAppStateV12 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
   await AsyncStorage.setItem(APP_STATE_KEY, JSON.stringify(stored));
 }
 
@@ -51,6 +51,7 @@ async function loadLegacyState(): Promise<AppState> {
     coachingProfile: { ...DEFAULT_COACHING_PROFILE },
     coachingDecisions: [],
     settings: { ...DEFAULT_APP_SETTINGS },
+    temporaryPlans: [],
   };
 }
 

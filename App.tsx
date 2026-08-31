@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWorkingLoadPreservingWarmups, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
-import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./src/domain/programGenerator";
+import { generateAdaptiveProgram, isRoutineChangeDue, recommendedTrainingSplit, rotateIsolationExercises, routineWeek, TrainingSplit } from "./src/domain/programGenerator";
 import { deleteSessionRecord, recentSixWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
@@ -13,6 +13,7 @@ import { AppState, loadAppState, saveAppState } from "./src/storage/appStorage";
 import { pickAppBackup, shareAppBackup } from "./src/storage/backupFiles";
 import { AppSettings, DEFAULT_APP_SETTINGS } from "./src/storage/migrations";
 import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE, fixedTrainingProfile } from "./src/domain/coaching";
+import { completeExpiredTemporaryPlans, createTemporaryPlan, isTemporaryPlanCurrent, TemporaryTrainingPlan, validateTemporaryPlanDates } from "./src/domain/temporaryPlan";
 
 type AppView = "log" | "history" | "program" | "library";
 
@@ -35,6 +36,8 @@ export default function App() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [deloadWorkoutIds, setDeloadWorkoutIds] = useState<Set<string>>(() => new Set());
+  const [temporaryPlans, setTemporaryPlans] = useState<TemporaryTrainingPlan[]>([]);
+  const [editingTemporaryPlanId, setEditingTemporaryPlanId] = useState<string | null>(null);
   const routinePromptShown = useRef(false);
   const workoutScroll = useRef<ScrollView>(null);
   const exerciseOffsets = useRef<Record<string, number>>({});
@@ -43,6 +46,7 @@ export default function App() {
   useEffect(() => {
     loadAppState().then((state) => {
       setWorkouts(state.workouts);
+      setTemporaryPlans(completeExpiredTemporaryPlans(state.temporaryPlans));
       setRecords(recentSixWeekRecords(state.records));
       setTrainingDays(state.program.trainingDays);
       setPhase(state.program.phase);
@@ -79,20 +83,41 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) return;
-    saveAppState({ workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings })
+    saveAppState({ workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans })
       .then(() => setStorageError(null))
       .catch((error: unknown) => {
         console.warn("GymJournal: unable to save app data.", error);
         setStorageError("Changes could not be saved. Check available device storage.");
       });
-  }, [workouts, records, trainingDays, phase, routineStartedAt, routineChangeDeferred, activeSession, coachingProfile, coachingDecisions, settings, loaded]);
+  }, [workouts, records, trainingDays, phase, routineStartedAt, routineChangeDeferred, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans, loaded]);
 
-  const selectedWorkoutIndex = selected < workouts.length ? selected : 0;
-  const workout = workouts[selectedWorkoutIndex];
+  const activeTemporaryPlan = temporaryPlans.find((plan) => isTemporaryPlanCurrent(plan));
+  const sessionTemporaryPlan = activeSession ? temporaryPlans.find((plan) => plan.workouts.some((item) => item.id === activeSession.workoutId)) : undefined;
+  const editedTemporaryPlan = temporaryPlans.find((plan) => plan.id === editingTemporaryPlanId);
+  const visibleTemporaryPlan = editedTemporaryPlan ?? activeTemporaryPlan ?? sessionTemporaryPlan;
+  const visibleWorkouts = visibleTemporaryPlan?.workouts ?? workouts;
+  const selectedWorkoutIndex = selected < visibleWorkouts.length ? selected : 0;
+  const workout = visibleWorkouts[selectedWorkoutIndex];
   const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises } : workout;
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && !setValidationError(set, exercise, index)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);
+
+  function updateVisibleWorkouts(update: (current: Workout[]) => Workout[]) {
+    if (visibleTemporaryPlan) {
+      setTemporaryPlans((current) => current.map((plan) => plan.id === visibleTemporaryPlan.id ? { ...plan, workouts: update(plan.workouts) } : plan));
+    } else {
+      setWorkouts(update);
+    }
+  }
+
+  useEffect(() => {
+    if (!loaded || activeSession) return;
+    setTemporaryPlans((current) => {
+      const next = completeExpiredTemporaryPlans(current);
+      return next.some((plan, index) => plan.status !== current[index]?.status) ? next : current;
+    });
+  }, [activeSession, loaded]);
 
   function updateSet(exerciseId: string, setIndex: number, changes: Partial<SetLog>) {
     setActiveSession((current) => current ? {
@@ -105,7 +130,7 @@ export default function App() {
   }
 
   function setLoadingType(exerciseId: string, loadingType: LoadingType) {
-    setWorkouts((current) => current.map((item) => ({
+    updateVisibleWorkouts((current) => current.map((item) => ({
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId && !exercise.loadingType ? { ...exercise, loadingType } : exercise),
     })));
@@ -130,7 +155,7 @@ export default function App() {
       });
       return;
     }
-    setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
+    updateVisibleWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWorkingLoadPreservingWarmups(exercise, weight)),
     }));
@@ -164,7 +189,7 @@ export default function App() {
       });
       return;
     }
-    setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
+    updateVisibleWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? updateExercisePrescription(exercise, { targetSets: exercise.targetSets + 1 }) : exercise),
     }));
@@ -178,7 +203,7 @@ export default function App() {
       });
       return;
     }
-    setWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
+    updateVisibleWorkouts((current) => current.map((item) => item.id !== workout.id ? item : {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? updateExercisePrescription(exercise, { targetSets: exercise.targetSets - 1 }) : exercise),
     }));
@@ -186,7 +211,7 @@ export default function App() {
 
   function moveExercise(exerciseId: string, direction: -1 | 1) {
     const targetWorkoutId = activeSession?.workoutId ?? workout.id;
-    setWorkouts((current) => current.map((item) => item.id === targetWorkoutId ? moveWorkoutExercise(item, exerciseId, direction) : item));
+    updateVisibleWorkouts((current) => current.map((item) => item.id === targetWorkoutId ? moveWorkoutExercise(item, exerciseId, direction) : item));
     setActiveSession((current) => current ? { ...current, exercises: moveWorkoutExercise({ id: current.workoutId, title: current.workoutTitle, focus: current.focus, exercises: current.exercises }, exerciseId, direction).exercises } : current);
   }
 
@@ -213,7 +238,7 @@ export default function App() {
     if (!activeSession) return;
     const record = completeActiveSession(activeSession);
     setRecords((current) => recentSixWeekRecords([record, ...current]));
-    setWorkouts((current) => applySessionPerformance(current, activeSession));
+    updateVisibleWorkouts((current) => applySessionPerformance(current, activeSession));
     setActiveSession(null);
     Alert.alert("Workout saved", `${completedSets} sets logged · ${displayWeight(record.volume, settings.weightUnit).toLocaleString()} ${weightUnitLabel(settings.weightUnit)} volume`);
     setView("history");
@@ -272,10 +297,10 @@ export default function App() {
     if (activeSession) {
       const temporaryWorkoutId = `active-${activeSession.id}`;
       const activeWorkout: Workout = { id: temporaryWorkoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises };
-      const updatedActive = addWorkoutExercise([...workouts, activeWorkout], temporaryWorkoutId, definition, records).find((item) => item.id === temporaryWorkoutId);
+      const updatedActive = addWorkoutExercise([...visibleWorkouts, activeWorkout], temporaryWorkoutId, definition, records).find((item) => item.id === temporaryWorkoutId);
       if (updatedActive) setActiveSession((current) => current ? { ...current, exercises: updatedActive.exercises } : current);
     }
-    setWorkouts((current) => addWorkoutExercise(current, targetWorkoutId, definition, records));
+    updateVisibleWorkouts((current) => addWorkoutExercise(current, targetWorkoutId, definition, records));
     setAddingExercise(false);
     setView("log");
     Alert.alert("Exercise added", `${definition.name} was added to this workout as a separate exercise.`);
@@ -288,7 +313,7 @@ export default function App() {
       { text: "Cancel", style: "cancel" },
       { text: "Remove", style: "destructive", onPress: () => {
         const targetWorkoutId = activeSession?.workoutId ?? workout.id;
-        setWorkouts((current) => removeWorkoutExercise(current, targetWorkoutId, exerciseId));
+        updateVisibleWorkouts((current) => removeWorkoutExercise(current, targetWorkoutId, exerciseId));
         setActiveSession((current) => {
           if (!current || current.exercises.length <= 1) return current;
           const exercises = current.exercises.filter((item) => item.id !== exerciseId);
@@ -304,7 +329,7 @@ export default function App() {
     if (activeSession) {
       const temporaryWorkoutId = `active-${activeSession.id}`;
       const activeWorkout: Workout = { id: temporaryWorkoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises };
-      const replacedActiveWorkout = replaceWorkoutExercise([...workouts, activeWorkout], temporaryWorkoutId, replacementExerciseId, replacement, records).find((item) => item.id === temporaryWorkoutId);
+      const replacedActiveWorkout = replaceWorkoutExercise([...visibleWorkouts, activeWorkout], temporaryWorkoutId, replacementExerciseId, replacement, records).find((item) => item.id === temporaryWorkoutId);
       if (replacedActiveWorkout) {
         setActiveSession((current) => !current ? current : {
           ...current,
@@ -312,9 +337,9 @@ export default function App() {
           exercises: replacedActiveWorkout.exercises,
         });
       }
-      setWorkouts((current) => replaceWorkoutExercise(current, activeSession.workoutId, replacementExerciseId, replacement, records));
+      updateVisibleWorkouts((current) => replaceWorkoutExercise(current, activeSession.workoutId, replacementExerciseId, replacement, records));
     } else {
-      setWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement, records));
+      updateVisibleWorkouts((current) => replaceWorkoutExercise(current, workout.id, replacementExerciseId, replacement, records));
     }
     setReplacementExerciseId(null);
     setAddingExercise(false);
@@ -368,8 +393,8 @@ export default function App() {
       setView("log");
       return Alert.alert("Workout in progress", "Finish or cancel your active workout before repeating a saved session.");
     }
-    const repeated = repeatSessionFromRecord(record, records, new Date(), workouts, deload);
-    const workoutIndex = workouts.findIndex((item) => item.id === repeated.workoutId);
+    const repeated = repeatSessionFromRecord(record, records, new Date(), visibleWorkouts, deload);
+    const workoutIndex = visibleWorkouts.findIndex((item) => item.id === repeated.workoutId);
     if (workoutIndex >= 0) setSelected(workoutIndex);
     setActiveSession(repeated);
     setReplacementExerciseId(null);
@@ -378,8 +403,98 @@ export default function App() {
     Alert.alert(deload ? "Deload ready" : "Workout ready", `${record.workoutTitle.split(" · ").pop()} has been rebuilt using the latest normal working weight recorded for each exercise${deload ? ", reduced to 75%" : ""}.`);
   }
 
+  function createTemporaryPlanDraft(startsAt: string, endsAt: string, trainingSplit: TrainingSplit) {
+    if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel your active workout before creating a temporary plan.");
+    const error = validateTemporaryPlanDates(startsAt, endsAt);
+    if (error) return Alert.alert("Check the dates", error);
+    const resolvedSplit = trainingSplit === "auto" ? recommendedTrainingSplit(3, coachingProfile.coachingStyle) : trainingSplit;
+    const draftWorkouts = generateAdaptiveProgram(3, { ...coachingProfile, trainingSplit: resolvedSplit }, workouts);
+    const draft = createTemporaryPlan(draftWorkouts, startsAt, endsAt, resolvedSplit);
+    setTemporaryPlans((current) => [draft, ...current.filter((plan) => plan.status === "completed")]);
+    setEditingTemporaryPlanId(draft.id);
+    setSelected(0);
+    setView("log");
+    Alert.alert("Temporary plan draft ready", "Review all three days. You can add, remove, replace, reorder, or adjust exercises and sets before activating it.");
+  }
+
+  function editTemporaryPlan(planId: string) {
+    if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel your active workout before editing a plan.");
+    setEditingTemporaryPlanId(planId);
+    setSelected(0);
+    setView("log");
+  }
+
+  function activateTemporaryPlan(planId: string, startsAt: string, endsAt: string) {
+    if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel your active workout before activating a plan.");
+    const error = validateTemporaryPlanDates(startsAt, endsAt);
+    if (error) return Alert.alert("Check the dates", error);
+    setTemporaryPlans((current) => current.map((plan) => plan.id === planId
+      ? { ...plan, startsAt, endsAt, status: "active" }
+      : plan.status === "active" ? { ...plan, status: "completed" } : plan));
+    setEditingTemporaryPlanId(null);
+    setSelected(0);
+    setView("log");
+    Alert.alert("Temporary plan activated", `Your permanent routine is safely stored. This plan runs from ${startsAt} through ${endsAt}, then GymJournal restores your regular routine automatically.`);
+  }
+
+  function endTemporaryPlan(planId: string) {
+    if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel the current workout before ending the temporary plan.");
+    Alert.alert("Resume regular routine?", "The temporary plan will be kept in Past Temporary Plans and your permanent split will return immediately.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "End plan", style: "destructive", onPress: () => {
+        setTemporaryPlans((current) => current.map((plan) => plan.id === planId ? { ...plan, status: "completed" } : plan));
+        setEditingTemporaryPlanId(null);
+        setSelected(0);
+        setView("log");
+      } },
+    ]);
+  }
+
+  function discardTemporaryPlan(planId: string) {
+    if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel your active workout before discarding a draft.");
+    Alert.alert("Discard temporary plan draft?", "This removes the unactivated draft. Your permanent routine will not be changed.", [
+      { text: "Keep draft", style: "cancel" },
+      { text: "Discard draft", style: "destructive", onPress: () => {
+        setTemporaryPlans((current) => current.filter((plan) => plan.id !== planId));
+        setEditingTemporaryPlanId(null);
+        setSelected(0);
+        setView("program");
+      } },
+    ]);
+  }
+
+  function reuseTemporaryPlan(planId: string, startsAt: string, endsAt: string) {
+    const source = temporaryPlans.find((plan) => plan.id === planId);
+    if (!source) return;
+    const error = validateTemporaryPlanDates(startsAt, endsAt);
+    if (error) return Alert.alert("Check the dates", error);
+    const draft = createTemporaryPlan(source.workouts, startsAt, endsAt, source.trainingSplit ?? "auto");
+    setTemporaryPlans((current) => [draft, ...current]);
+    editTemporaryPlan(draft.id);
+  }
+
+  function makeTemporaryPlanRegular(planId: string) {
+    if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel your active workout before changing the regular routine.");
+    const plan = temporaryPlans.find((item) => item.id === planId);
+    if (!plan) return;
+    Alert.alert("Make this your regular plan?", "This replaces your current permanent routine with this three-day plan. The temporary copy will still be retained in Past Temporary Plans.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Make regular", onPress: () => {
+        setWorkouts(plan.workouts);
+        setTrainingDays(plan.workouts.length);
+        setCoachingProfile((current) => ({ ...current, trainingSplit: plan.trainingSplit ?? "auto" }));
+        setRoutineStartedAt(new Date().toISOString());
+        setRoutineChangeDeferred(false);
+        setTemporaryPlans((current) => current.map((item) => item.id === planId ? { ...item, status: "completed" } : item));
+        setEditingTemporaryPlanId(null);
+        setSelected(0);
+        setView("log");
+      } },
+    ]);
+  }
+
   function appState(): AppState {
-    return { workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings };
+    return { workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans };
   }
 
   async function exportBackup() {
@@ -417,6 +532,7 @@ export default function App() {
 
   function applyRestoredState(state: AppState) {
     setWorkouts(state.workouts);
+    setTemporaryPlans(completeExpiredTemporaryPlans(state.temporaryPlans));
     setRecords(recentSixWeekRecords(state.records));
     setTrainingDays(state.program.trainingDays);
     setPhase(state.program.phase);
@@ -439,7 +555,8 @@ export default function App() {
     <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program", "library"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setAddingExercise(false); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} /> : view === "library" ? <ExerciseLibraryScreen selectionMode={addingExercise ? "add" : replacementExerciseId ? "replace" : undefined} replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : addingExercise ? displayedWorkout.exercises.map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={addingExercise ? chooseAddition : replacementExerciseId ? chooseReplacement : undefined} onCancelSelection={() => { setReplacementExerciseId(null); setAddingExercise(false); setView("log"); }} /> : <WorkoutScreen workouts={workouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByFiveWorkingLoad} />}
+      {visibleTemporaryPlan && view === "log" && <View style={styles.temporaryBanner}><Text style={styles.temporaryBannerTitle}>{visibleTemporaryPlan.status === "draft" ? "TEMPORARY PLAN DRAFT" : "TEMPORARY PLAN ACTIVE"}</Text><Text style={styles.temporaryBannerText}>{visibleTemporaryPlan.startsAt} → {visibleTemporaryPlan.endsAt}{visibleTemporaryPlan.status === "draft" ? " · Edit every day, then activate it from Program." : " · Your regular routine is safely stored."}</Text></View>}
+      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} backupBusy={backupBusy} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeDeferred={routineChangeDeferred} temporaryPlans={temporaryPlans} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onExportBackup={exportBackup} onImportBackup={importBackup} onCreateTemporary={createTemporaryPlanDraft} onEditTemporary={editTemporaryPlan} onActivateTemporary={activateTemporaryPlan} onEndTemporary={endTemporaryPlan} onDiscardTemporary={discardTemporaryPlan} onReuseTemporary={reuseTemporaryPlan} onMakeTemporaryRegular={makeTemporaryPlanRegular} /> : view === "library" ? <ExerciseLibraryScreen selectionMode={addingExercise ? "add" : replacementExerciseId ? "replace" : undefined} replacementForId={replacementExerciseId ?? undefined} excludedIds={replacementExerciseId ? displayedWorkout.exercises.filter((exercise) => exercise.id !== replacementExerciseId).map((exercise) => exercise.id) : addingExercise ? displayedWorkout.exercises.map((exercise) => exercise.id) : []} preferredIds={coachingProfile.preferredExerciseIds} profileExcludedIds={coachingProfile.excludedExerciseIds} onPreference={setExercisePreference} onSelect={addingExercise ? chooseAddition : replacementExerciseId ? chooseReplacement : undefined} onCancelSelection={() => { setReplacementExerciseId(null); setAddingExercise(false); setView("log"); }} /> : <WorkoutScreen workouts={visibleWorkouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} canStart={visibleTemporaryPlan?.status !== "draft"} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByFiveWorkingLoad} />}
     </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;
@@ -449,4 +566,5 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#101311" }, keyboard: { flex: 1 }, page: { padding: 20, paddingBottom: 42 },
   storageError: { backgroundColor: "#3b211d", borderColor: "#d36b5b", borderWidth: 1, borderRadius: 7, padding: 11, marginTop: 10 }, storageErrorText: { color: "#ffd6cf", fontSize: 11, lineHeight: 16, fontWeight: "700" },
   viewTabs: { flexDirection: "row", backgroundColor: "#1a1f1a", borderRadius: 8, padding: 4, marginTop: 22, gap: 4 }, viewTab: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 5 }, viewTabActive: { backgroundColor: "#d8ff38" }, viewTabText: { color: "#848c82", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, viewTabTextActive: { color: "#15190f" },
+  temporaryBanner: { backgroundColor: "#202917", borderWidth: 1, borderColor: "#809b25", borderRadius: 8, padding: 12, marginTop: 16 }, temporaryBannerTitle: { color: "#d8ff38", fontSize: 10, fontWeight: "900", letterSpacing: 1 }, temporaryBannerText: { color: "#aab4a4", fontSize: 10, lineHeight: 15, marginTop: 5 },
 });
