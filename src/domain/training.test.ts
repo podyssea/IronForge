@@ -68,40 +68,41 @@ describe("set validation and session calculations", () => {
 });
 
 describe("active session lifecycle", () => {
-  it("builds the squat and conventional deadlift into a calculated 3x5 ramp", () => {
+  it("builds the squat and conventional deadlift into a calculated 3x3 ramp", () => {
     const source = initialFourDaySplit()[0].exercises[0];
-    const workout = { id: "strength", title: "Strength", focus: "3x5", exercises: [
-      { ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 5 },
-      { ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 5 },
+    const workout = { id: "strength", title: "Strength", focus: "3x3", exercises: [
+      { ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 3 },
+      { ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 3 },
     ] };
     const session = startActiveSession(workout);
-    expect(session.exercises[0]).toMatchObject({ targetSets: 6, repRange: [5, 5] });
-    expect(session.exercises[0].sets.map((set) => [set.weight, set.reps])).toEqual([[40, 5], [60, 5], [80, 3], [100, 5], [100, 5], [100, 5]]);
+    expect(session.exercises[0]).toMatchObject({ targetSets: 6, repRange: [3, 3] });
+    expect(session.exercises[0].sets.map((set) => [set.weight, set.reps])).toEqual([[40, 5], [60, 5], [80, 3], [100, 3], [100, 3], [100, 3]]);
     expect(displayExerciseWeight(100, session.exercises[0], "kg")).toBe(40);
     expect(storedExerciseWeight(40, session.exercises[0], "kg")).toBe(100);
     expect(session.exercises[1].sets.map((set) => set.weight)).toEqual([60, 90, 120, 150, 150, 150]);
     expect(workingSets(session.exercises[0])).toHaveLength(3);
   });
 
-  it("updates a 3x5 load only after all three working sets are conquered", () => {
+  it("updates a 3x3 load only after all three working sets are conquered", () => {
     const source = initialFourDaySplit()[0].exercises[0];
-    const workout = { id: "strength", title: "Strength", focus: "3x5", exercises: [{ ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 5 }] };
+    const workout = { id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 3 }] };
     const session = startActiveSession(workout);
-    session.exercises[0].sets.slice(-3).forEach((set, index) => Object.assign(set, { weight: 102.5, reps: 5, completed: index < 2 }));
+    session.exercises[0].sets.slice(-3).forEach((set, index) => Object.assign(set, { weight: 102.5, reps: 3, completed: index < 2 }));
     expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(100);
     session.exercises[0].sets.at(-1)!.completed = true;
     expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(102.5);
   });
 
-  it("changes a 3x5 working target without recalculating entered warm-ups", () => {
+  it("can change a 3x3 working target while preserving explicitly entered warm-ups", () => {
     const source = initialFourDaySplit()[0].exercises[0];
-    const squat = startActiveSession({ id: "strength", title: "Strength", focus: "3x5", exercises: [{ ...source, id: "back-squat", lastWeight: 100, lastReps: 5 }] }).exercises[0];
+    const squat = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "back-squat", lastWeight: 100, lastReps: 3 }] }).exercises[0];
     squat.sets[0].weight = 25;
     squat.sets[1].weight = 45;
     squat.sets[2].weight = 65;
 
     const updated = applyWorkingLoadPreservingWarmups(squat, 110);
     expect(updated.sets.map((set) => set.weight)).toEqual([25, 45, 65, 110, 110, 110]);
+    expect(updated.sets.slice(-3).every((set) => set.reps === 3)).toBe(true);
   });
 
   it("resizes a live exercise without clearing logged sets", () => {
@@ -144,6 +145,31 @@ describe("active session lifecycle", () => {
     expect(updated[0].exercises[0].lastWeight).toBe(45);
     expect(updated[0].exercises[1].lastWeight).toBe(workouts[0].exercises[1].lastWeight);
     expect(updated[1]).toBe(workouts[1]);
+  });
+
+  it("preserves every saved weight and rep value for regular exercises", () => {
+    const workouts = initialFourDaySplit();
+    const session = startActiveSession(workouts[0]);
+    session.exercises[0].sets = [
+      { weight: 15, reps: 6, completed: true },
+      { weight: 25, reps: 7, completed: true },
+      { weight: 42.5, reps: 8, completed: true },
+      { weight: 45, reps: 6, completed: true },
+    ];
+
+    const saved = applySessionPerformance(workouts, session)[0].exercises[0];
+    expect(saved.sets.map(({ weight, reps }) => ({ weight, reps }))).toEqual([
+      { weight: 15, reps: 6 },
+      { weight: 25, reps: 7 },
+      { weight: 42.5, reps: 8 },
+      { weight: 45, reps: 6 },
+    ]);
+    expect(startActiveSession({ ...workouts[0], exercises: [saved] }).exercises[0].sets.map(({ weight, reps }) => ({ weight, reps }))).toEqual([
+      { weight: 15, reps: 6 },
+      { weight: 25, reps: 7 },
+      { weight: 42.5, reps: 8 },
+      { weight: 45, reps: 6 },
+    ]);
   });
 
   it("persists added and removed set counts after a workout finishes", () => {
