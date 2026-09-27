@@ -196,8 +196,19 @@ export function rotateIsolationExercises(workouts: Workout[], profile: CoachingP
 }
 
 export function isRoutineChangeDue(routineStartedAt: string, now = new Date()): boolean {
+  const changeDate = routineChangeDate(routineStartedAt);
+  return changeDate !== null && now.getTime() >= changeDate.getTime();
+}
+
+export function routineChangeDate(routineStartedAt: string): Date | null {
   const startedAt = new Date(routineStartedAt);
-  return !Number.isNaN(startedAt.getTime()) && now.getTime() - startedAt.getTime() >= 42 * 24 * 60 * 60 * 1000;
+  if (Number.isNaN(startedAt.getTime())) return null;
+  const changeDate = new Date(startedAt);
+  changeDate.setDate(changeDate.getDate() + 42);
+  changeDate.setHours(0, 0, 0, 0);
+  const daysUntilMonday = (8 - changeDate.getDay()) % 7;
+  changeDate.setDate(changeDate.getDate() + daysUntilMonday);
+  return changeDate;
 }
 
 export function routineWeek(routineStartedAt: string, now = new Date()): number {

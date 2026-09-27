@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CoachingProfile, DEFAULT_COACHING_PROFILE } from "./coaching";
 import { getExerciseDefinition, MuscleGroup } from "./exerciseLibrary";
-import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineWeek } from "./programGenerator";
+import { generateAdaptiveProgram, isRoutineChangeDue, rotateIsolationExercises, routineChangeDate, routineWeek } from "./programGenerator";
 import { initialFourDaySplit } from "./training";
 
 describe("adaptive program generator", () => {
@@ -109,10 +109,18 @@ describe("adaptive program generator", () => {
     expect(rotated.map((workout) => workout.exercises.length)).toEqual(workouts.map((workout) => workout.exercises.length));
   });
 
-  it("marks a routine due after six full weeks", () => {
-    const startedAt = "2026-01-01T10:00:00.000Z";
-    expect(isRoutineChangeDue(startedAt, new Date("2026-02-12T09:59:59.000Z"))).toBe(false);
-    expect(isRoutineChangeDue(startedAt, new Date("2026-02-12T10:00:00.000Z"))).toBe(true);
-    expect(routineWeek(startedAt, new Date("2026-01-29T10:00:00.000Z"))).toBe(5);
+  it("marks a routine due on the first Monday after its six-week block", () => {
+    const startedAt = new Date(2026, 0, 1, 10).toISOString();
+    const changeDate = routineChangeDate(startedAt);
+    expect(changeDate?.getDay()).toBe(1);
+    expect(changeDate?.getHours()).toBe(0);
+    expect(isRoutineChangeDue(startedAt, new Date(2026, 1, 15, 23, 59, 59))).toBe(false);
+    expect(isRoutineChangeDue(startedAt, new Date(2026, 1, 16, 0, 0, 0))).toBe(true);
+    expect(routineWeek(startedAt, new Date(2026, 0, 29, 10))).toBe(5);
+  });
+
+  it("uses Monday immediately after a six-week block that began on Monday", () => {
+    const startedAt = new Date(2026, 0, 5, 18).toISOString();
+    expect(routineChangeDate(startedAt)).toEqual(new Date(2026, 1, 16, 0, 0, 0));
   });
 });
