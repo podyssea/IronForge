@@ -114,6 +114,50 @@ describe("storage migrations", () => {
     expect(migrated?.program).toEqual(currentProgram);
   });
 
+  it("migrates schema version 12 without an undo snapshot", () => {
+    const workouts = initialFourDaySplit();
+    const currentProgram = { ...program, routineStartedAt: "2026-07-01T08:00:00.000Z", routineChangeDeferred: false };
+    const migrated = migrateStoredState({ schemaVersion: 12, workouts, records: [], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [] });
+    expect(migrated?.previousRoutine).toBeNull();
+  });
+
+  it("recovers a pre-restructure routine from complete workout history in schema version 12", () => {
+    const previousWorkouts = initialFourDaySplit();
+    const refreshedWorkouts = previousWorkouts.map((workout) => ({
+      ...workout,
+      focus: `${workout.focus} · Refreshed isolation selection`,
+      exercises: workout.exercises.map((exercise, index) => index === workout.exercises.length - 1 ? { ...exercise, id: `${exercise.id}-replacement`, name: `${exercise.name} Replacement` } : exercise),
+    }));
+    const records = previousWorkouts.map((workout, index) => ({
+      id: `record-${workout.id}`,
+      sourceWorkoutId: workout.id,
+      completedAt: `2026-07-${String(index + 1).padStart(2, "0")}T08:00:00.000Z`,
+      workoutTitle: workout.title,
+      exercises: workout.exercises.map((exercise) => ({ ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: true })) })),
+      volume: 0,
+    }));
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+    const migrated = migrateStoredState({ schemaVersion: 12, workouts: refreshedWorkouts, records, program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [] });
+    expect(migrated?.previousRoutine?.workouts.map((workout) => workout.exercises.map((exercise) => exercise.id))).toEqual(previousWorkouts.map((workout) => workout.exercises.map((exercise) => exercise.id)));
+    expect(migrated?.previousRoutine?.workouts.flatMap((workout) => workout.exercises).every((exercise) => exercise.sets.every((set) => !set.completed))).toBe(true);
+    expect(migrated?.previousRoutine?.routineChangeDeferred).toBe(true);
+  });
+
+  it("does not offer a partial recovered routine when a workout has no saved session", () => {
+    const workouts = initialFourDaySplit().map((workout) => ({ ...workout, focus: `${workout.focus} · Refreshed isolation selection` }));
+    const migrated = migrateStoredState({ schemaVersion: 12, workouts, records: [], program: { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false }, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [] });
+    expect(migrated?.previousRoutine).toBeNull();
+  });
+
+  it("retains a previous routine snapshot in schema version 13", () => {
+    const workouts = initialFourDaySplit();
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+    const previousRoutine = { workouts, routineStartedAt: "2026-07-01T08:00:00.000Z", routineChangeDeferred: true };
+    const migrated = migrateStoredState({ schemaVersion: 13, workouts, records: [], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine });
+    expect(migrated?.previousRoutine).toEqual(previousRoutine);
+    expect(migrated).not.toHaveProperty("schemaVersion");
+  });
+
   it("rejects malformed state", () => {
     expect(migrateStoredState({ schemaVersion: 7, workouts: [], records: [], program, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [] })).toBeNull();
     expect(migrateStoredState({ schemaVersion: 1, workouts: initialFourDaySplit(), records: "invalid", program })).toBeNull();

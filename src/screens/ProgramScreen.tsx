@@ -11,6 +11,7 @@ type ProgramScreenProps = {
   currentRoutineWeek: number;
   routineChangeAt: string | null;
   routineChangeDeferred: boolean;
+  canRestorePreviousRoutine: boolean;
   temporaryPlans: TemporaryTrainingPlan[];
   onDays: (days: number) => void;
   onProfile: (profile: CoachingProfile) => void;
@@ -18,6 +19,7 @@ type ProgramScreenProps = {
   onExportBackup: () => void;
   onImportBackup: () => void;
   onRotateRoutine: () => void;
+  onRestorePreviousRoutine: () => void;
   onCreateTemporary: (startsAt: string, endsAt: string, trainingSplit: TrainingSplit) => void;
   onEditTemporary: (planId: string) => void;
   onActivateTemporary: (planId: string, startsAt: string, endsAt: string) => void;
@@ -27,7 +29,7 @@ type ProgramScreenProps = {
   onMakeTemporaryRegular: (planId: string) => void;
 };
 
-export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutineWeek, routineChangeAt, routineChangeDeferred, temporaryPlans, onDays, onProfile, onApply, onExportBackup, onImportBackup, onRotateRoutine, onCreateTemporary, onEditTemporary, onActivateTemporary, onEndTemporary, onDiscardTemporary, onReuseTemporary, onMakeTemporaryRegular }: ProgramScreenProps) {
+export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutineWeek, routineChangeAt, routineChangeDeferred, canRestorePreviousRoutine, temporaryPlans, onDays, onProfile, onApply, onExportBackup, onImportBackup, onRotateRoutine, onRestorePreviousRoutine, onCreateTemporary, onEditTemporary, onActivateTemporary, onEndTemporary, onDiscardTemporary, onReuseTemporary, onMakeTemporaryRegular }: ProgramScreenProps) {
   const update = (changes: Partial<CoachingProfile>) => onProfile({ ...profile, ...changes });
   const estimatedExercises = Math.max(4, Math.min(9, Math.floor((profile.sessionMinutes - 8) / 7)));
   const today = new Date();
@@ -64,6 +66,7 @@ export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutin
       <Text style={styles.routineText}>{routineChangeDeferred ? "You kept your current routine. Refresh it whenever you are ready." : "On the first Monday after your six-week block, GymJournal will offer a refreshed routine that keeps your compound exercises and rotates isolation work."}</Text>
       <Text style={styles.routineDate}>REFRESH SUGGESTION · {expectedRoutineChange.toUpperCase()}</Text>
       <Pressable onPress={onRotateRoutine} style={styles.routineAction}><Text style={styles.routineActionText}>REFRESH ROUTINE</Text></Pressable>
+      {canRestorePreviousRoutine && <Pressable onPress={onRestorePreviousRoutine} style={styles.restoreRoutineAction}><Text style={styles.restoreRoutineActionText}>RESTORE PREVIOUS ROUTINE</Text></Pressable>}
     </View>
     <Text style={styles.builderLabel}>TEMPORARY TRAINING PLAN</Text>
     <View style={styles.temporaryCard}>
@@ -113,6 +116,7 @@ const styles = StyleSheet.create({
   preview: { backgroundColor: "#1a1f1a", borderLeftWidth: 3, borderLeftColor: "#d8ff38", borderRadius: 7, padding: 14, marginTop: 20 }, previewTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800", textTransform: "capitalize" }, previewText: { color: "#8c958a", fontSize: 11, lineHeight: 16, marginTop: 5 },
   finish: { height: 58, borderRadius: 9, backgroundColor: "#d8ff38", marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }, finishText: { color: "#15190f", fontWeight: "900", fontSize: 12, letterSpacing: .8 }, finishArrow: { color: "#15190f", fontSize: 22, fontWeight: "700" },
   routineCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, routineHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, routineTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "900" }, routineBadge: { color: "#d8ff38", fontSize: 8, fontWeight: "900", letterSpacing: 1, borderWidth: 1, borderColor: "#66762c", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 }, routineText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 8 }, routineDate: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .5, marginTop: 10 }, routineAction: { minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#d8ff38", alignItems: "center", justifyContent: "center", marginTop: 15 }, routineActionText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
+  restoreRoutineAction: { minHeight: 40, borderRadius: 7, borderWidth: 1, borderColor: "#65705f", alignItems: "center", justifyContent: "center", marginTop: 8 }, restoreRoutineActionText: { color: "#d8ded5", fontSize: 8, fontWeight: "900", letterSpacing: .6 },
   temporaryCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#52621f", gap: 12 }, dateRow: { flexDirection: "row", gap: 8 }, dateField: { flex: 1 }, dateLabel: { color: "#8d958c", fontSize: 7, fontWeight: "900", letterSpacing: .6, marginBottom: 5 }, dateInput: { minHeight: 42, borderWidth: 1, borderColor: "#465044", borderRadius: 7, color: "#f3f5f0", paddingHorizontal: 9, fontSize: 12, fontWeight: "700" }, dangerButton: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#8b4a42", alignItems: "center", justifyContent: "center" }, dangerText: { color: "#e89b8e", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, regularButton: { minHeight: 40, borderRadius: 7, borderWidth: 1, borderColor: "#65705f", alignItems: "center", justifyContent: "center" }, regularText: { color: "#bfc8ba", fontSize: 8, fontWeight: "900", letterSpacing: .6 }, protectionText: { color: "#a7b56b", fontSize: 9, lineHeight: 14 }, pastPlan: { backgroundColor: "#1a1f1a", borderRadius: 8, borderWidth: 1, borderColor: "#303730", padding: 13, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }, pastPlanCopy: { flex: 1 }, pastPlanName: { color: "#edf0ea", fontSize: 12, fontWeight: "800" }, pastPlanMeta: { color: "#899188", fontSize: 9, marginTop: 4 }, reuseButton: { borderWidth: 1, borderColor: "#d8ff38", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 9 }, reuseText: { color: "#d8ff38", fontSize: 8, fontWeight: "900", letterSpacing: .6 },
   backupCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, backupTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800" }, backupText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 6 }, backupActions: { flexDirection: "row", gap: 8, marginTop: 15 }, backupPrimary: { flex: 1, minHeight: 44, borderRadius: 7, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center" }, backupPrimaryText: { color: "#15190f", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, backupSecondary: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#626b60", alignItems: "center", justifyContent: "center" }, backupSecondaryText: { color: "#e9ede6", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, buttonMuted: { opacity: .55 },
   settingCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, gap: 9 }, settingName: { color: "#8d958c", fontSize: 8, fontWeight: "900", letterSpacing: .8, marginTop: 4 },

@@ -6,6 +6,11 @@ describe("offline backup", () => {
   it("round-trips the complete app state", () => {
     const state = createDefaultAppState();
     state.workouts[0].exercises[0].loadingType = "plate-loaded";
+    state.previousRoutine = {
+      workouts: state.workouts,
+      routineStartedAt: "2026-06-01T08:00:00.000Z",
+      routineChangeDeferred: true,
+    };
     const json = createBackupJson(state, new Date("2026-07-29T12:00:00.000Z"));
     const restored = restoreBackupJson(json);
     expect(restored.state).toEqual(state);
