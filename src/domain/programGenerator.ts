@@ -258,7 +258,7 @@ function buildExercise(definition: ExerciseDefinition, goal: TrainingStyle, know
   const compoundSets: Record<TrainingStyle, number> = { strength: 4, hypertrophy: 4, "general-fitness": 3, "muscular-endurance": 3 };
   const targetSets = definition.modality === "compound" ? compoundSets[goal] : 3;
   const prescribedRange = definition.defaultRepRanges[goal];
-  const maximumReps = definition.modality === "compound" ? 10 : 12;
+  const maximumReps = definition.modality === "compound" ? 10 : 20;
   const repRange: [number, number] = [Math.min(maximumReps, Math.max(6, prescribedRange[0])), Math.min(maximumReps, Math.max(6, prescribedRange[1]))];
   const lastWeight = known?.lastWeight ?? 0;
   const lastReps = Math.min(maximumReps, Math.max(6, known?.lastReps ?? repRange[0]));

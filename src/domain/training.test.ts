@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription, workingSets } from "./training";
+import { addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription, updateExerciseSet, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -103,6 +103,18 @@ describe("active session lifecycle", () => {
     const updated = applyWorkingLoadPreservingWarmups(squat, 110);
     expect(updated.sets.map((set) => set.weight)).toEqual([25, 45, 65, 110, 110, 110]);
     expect(updated.sets.slice(-3).every((set) => set.reps === 3)).toBe(true);
+  });
+
+  it("keeps conventional deadlift working sets and conquered weight synchronized", () => {
+    const source = initialFourDaySplit()[0].exercises[0];
+    const deadlift = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 3 }] }).exercises[0];
+
+    const changedSet = updateExerciseSet(deadlift, 4, { weight: 160 });
+    expect(changedSet.lastWeight).toBe(160);
+    expect(changedSet.sets.slice(-3).map((set) => set.weight)).toEqual([160, 160, 160]);
+
+    const changedTarget = applyWarmupLoads({ ...changedSet, lastWeight: 170 }, 170);
+    expect(changedTarget.sets.slice(-3).map((set) => set.weight)).toEqual([170, 170, 170]);
   });
 
   it("resizes a live exercise without clearing logged sets", () => {
@@ -417,12 +429,12 @@ describe("exercise replacement", () => {
 });
 
 describe("modality prescriptions", () => {
-  it("uses three sets and no more than 12 reps for isolation exercises", () => {
+  it("uses three sets and allows up to 20 reps for isolation exercises", () => {
     const isolation = initialFourDaySplit()[0].exercises.find((exercise) => exercise.id === "preacher-curl")!;
     expect(isolation.targetSets).toBe(3);
     expect(isolation.sets).toHaveLength(3);
     expect(isolation.repRange[0]).toBeGreaterThanOrEqual(6);
-    expect(isolation.repRange[1]).toBeLessThanOrEqual(12);
+    expect(isolation.repRange[1]).toBeLessThanOrEqual(20);
   });
 
   it("starts compounds at six reps and caps them at 10", () => {

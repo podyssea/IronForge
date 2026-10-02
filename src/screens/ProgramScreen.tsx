@@ -7,7 +7,6 @@ import { recommendedTrainingSplit, TRAINING_SPLIT_OPTIONS, TrainingSplit, traini
 type ProgramScreenProps = {
   trainingDays: number;
   profile: CoachingProfile;
-  backupBusy: boolean;
   currentRoutineWeek: number;
   routineChangeAt: string | null;
   routineChangeDeferred: boolean;
@@ -16,8 +15,6 @@ type ProgramScreenProps = {
   onDays: (days: number) => void;
   onProfile: (profile: CoachingProfile) => void;
   onApply: () => void;
-  onExportBackup: () => void;
-  onImportBackup: () => void;
   onRotateRoutine: () => void;
   onRestorePreviousRoutine: () => void;
   onCreateTemporary: (startsAt: string, endsAt: string, trainingSplit: TrainingSplit) => void;
@@ -29,7 +26,7 @@ type ProgramScreenProps = {
   onMakeTemporaryRegular: (planId: string) => void;
 };
 
-export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutineWeek, routineChangeAt, routineChangeDeferred, canRestorePreviousRoutine, temporaryPlans, onDays, onProfile, onApply, onExportBackup, onImportBackup, onRotateRoutine, onRestorePreviousRoutine, onCreateTemporary, onEditTemporary, onActivateTemporary, onEndTemporary, onDiscardTemporary, onReuseTemporary, onMakeTemporaryRegular }: ProgramScreenProps) {
+export function ProgramScreen({ trainingDays, profile, currentRoutineWeek, routineChangeAt, routineChangeDeferred, canRestorePreviousRoutine, temporaryPlans, onDays, onProfile, onApply, onRotateRoutine, onRestorePreviousRoutine, onCreateTemporary, onEditTemporary, onActivateTemporary, onEndTemporary, onDiscardTemporary, onReuseTemporary, onMakeTemporaryRegular }: ProgramScreenProps) {
   const update = (changes: Partial<CoachingProfile>) => onProfile({ ...profile, ...changes });
   const estimatedExercises = Math.max(4, Math.min(9, Math.floor((profile.sessionMinutes - 8) / 7)));
   const today = new Date();
@@ -82,15 +79,6 @@ export function ProgramScreen({ trainingDays, profile, backupBusy, currentRoutin
       </>}
     </View>
     {pastPlans.length > 0 && <><Text style={styles.builderLabel}>PAST TEMPORARY PLANS</Text>{pastPlans.slice(0, 5).map((plan) => <View key={plan.id} style={styles.pastPlan}><View style={styles.pastPlanCopy}><Text style={styles.pastPlanName}>{plan.name}</Text><Text style={styles.pastPlanMeta}>{plan.startsAt} → {plan.endsAt} · {plan.workouts.length} days</Text></View><Pressable onPress={() => onReuseTemporary(plan.id, temporaryStart, temporaryEnd)} style={styles.reuseButton}><Text style={styles.reuseText}>REUSE</Text></Pressable></View>)}</>}
-    <Text style={styles.builderLabel}>DATA & BACKUP</Text>
-    <View style={styles.backupCard}>
-      <Text style={styles.backupTitle}>Keep your progress safe</Text>
-      <Text style={styles.backupText}>Save a complete offline backup of your workouts, history, coaching settings, and any active session. Restore it later on this or another iPhone.</Text>
-      <View style={styles.backupActions}>
-        <Pressable disabled={backupBusy} onPress={onExportBackup} style={({ pressed }) => [styles.backupPrimary, (pressed || backupBusy) && styles.buttonMuted]}><Text style={styles.backupPrimaryText}>{backupBusy ? "PLEASE WAIT…" : "SAVE BACKUP"}</Text></Pressable>
-        <Pressable disabled={backupBusy} onPress={onImportBackup} style={({ pressed }) => [styles.backupSecondary, (pressed || backupBusy) && styles.buttonMuted]}><Text style={styles.backupSecondaryText}>RESTORE BACKUP</Text></Pressable>
-      </View>
-    </View>
   </>;
 }
 
@@ -118,6 +106,6 @@ const styles = StyleSheet.create({
   routineCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, routineHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, routineTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "900" }, routineBadge: { color: "#d8ff38", fontSize: 8, fontWeight: "900", letterSpacing: 1, borderWidth: 1, borderColor: "#66762c", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 }, routineText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 8 }, routineDate: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .5, marginTop: 10 }, routineAction: { minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#d8ff38", alignItems: "center", justifyContent: "center", marginTop: 15 }, routineActionText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
   restoreRoutineAction: { minHeight: 40, borderRadius: 7, borderWidth: 1, borderColor: "#65705f", alignItems: "center", justifyContent: "center", marginTop: 8 }, restoreRoutineActionText: { color: "#d8ded5", fontSize: 8, fontWeight: "900", letterSpacing: .6 },
   temporaryCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#52621f", gap: 12 }, dateRow: { flexDirection: "row", gap: 8 }, dateField: { flex: 1 }, dateLabel: { color: "#8d958c", fontSize: 7, fontWeight: "900", letterSpacing: .6, marginBottom: 5 }, dateInput: { minHeight: 42, borderWidth: 1, borderColor: "#465044", borderRadius: 7, color: "#f3f5f0", paddingHorizontal: 9, fontSize: 12, fontWeight: "700" }, dangerButton: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#8b4a42", alignItems: "center", justifyContent: "center" }, dangerText: { color: "#e89b8e", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, regularButton: { minHeight: 40, borderRadius: 7, borderWidth: 1, borderColor: "#65705f", alignItems: "center", justifyContent: "center" }, regularText: { color: "#bfc8ba", fontSize: 8, fontWeight: "900", letterSpacing: .6 }, protectionText: { color: "#a7b56b", fontSize: 9, lineHeight: 14 }, pastPlan: { backgroundColor: "#1a1f1a", borderRadius: 8, borderWidth: 1, borderColor: "#303730", padding: 13, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }, pastPlanCopy: { flex: 1 }, pastPlanName: { color: "#edf0ea", fontSize: 12, fontWeight: "800" }, pastPlanMeta: { color: "#899188", fontSize: 9, marginTop: 4 }, reuseButton: { borderWidth: 1, borderColor: "#d8ff38", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 9 }, reuseText: { color: "#d8ff38", fontSize: 8, fontWeight: "900", letterSpacing: .6 },
-  backupCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 16, borderWidth: 1, borderColor: "#303730" }, backupTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800" }, backupText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 6 }, backupActions: { flexDirection: "row", gap: 8, marginTop: 15 }, backupPrimary: { flex: 1, minHeight: 44, borderRadius: 7, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center" }, backupPrimaryText: { color: "#15190f", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, backupSecondary: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#626b60", alignItems: "center", justifyContent: "center" }, backupSecondaryText: { color: "#e9ede6", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, buttonMuted: { opacity: .55 },
+  backupTitle: { color: "#f3f5f0", fontSize: 15, fontWeight: "800" }, backupText: { color: "#8c958a", fontSize: 11, lineHeight: 17, marginTop: 6 }, backupActions: { flexDirection: "row", gap: 8, marginTop: 15 }, backupPrimary: { flex: 1, minHeight: 44, borderRadius: 7, backgroundColor: "#d8ff38", alignItems: "center", justifyContent: "center" }, backupPrimaryText: { color: "#15190f", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, backupSecondary: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 1, borderColor: "#626b60", alignItems: "center", justifyContent: "center" }, backupSecondaryText: { color: "#e9ede6", fontSize: 9, fontWeight: "900", letterSpacing: .5 },
   settingCard: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, gap: 9 }, settingName: { color: "#8d958c", fontSize: 8, fontWeight: "900", letterSpacing: .8, marginTop: 4 },
 });
