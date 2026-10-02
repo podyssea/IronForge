@@ -205,6 +205,20 @@ export function applyWorkingLoadPreservingWarmups(exercise: Exercise, workingWei
   };
 }
 
+export function updateExerciseSet(exercise: Exercise, setIndex: number, changes: Partial<SetLog>): Exercise {
+  const sets = exercise.sets.map((set, index) => index === setIndex ? { ...set, ...changes } : set);
+  if (exercise.id !== "conventional-deadlift" || changes.weight === undefined || !isWorkingSet(exercise, setIndex)) {
+    return { ...exercise, sets };
+  }
+
+  const workingWeight = changes.weight;
+  const recalculated = applyWarmupLoads({ ...exercise, lastWeight: workingWeight, lastReps: 3, sets }, workingWeight);
+  return {
+    ...recalculated,
+    sets: recalculated.sets.map((set, index) => sets[index]?.completed ? sets[index] : set),
+  };
+}
+
 function roundThreeByThreeLoad(weight: number): number {
   return Math.max(20, Math.round(weight / 2.5) * 2.5);
 }
