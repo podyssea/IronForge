@@ -22,6 +22,7 @@ export type Exercise = {
   loadingType?: LoadingType;
   loadIncrement?: number;
   restSeconds?: number;
+  supersetId?: string;
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
@@ -344,6 +345,7 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
       if (!performed) return exercise;
       const resized = {
         ...exercise,
+        supersetId: performed.supersetId,
         targetSets: performed.targetSets,
         sets: Array.from({ length: performed.targetSets }, (_, index) => ({
           ...(exercise.sets[index] ?? exercise.sets.at(-1) ?? performed.sets[index]),
@@ -439,7 +441,7 @@ export function removeWorkoutExercise(workouts: Workout[], workoutId: string, ex
   if (!source || source.exercises.length <= 1 || !source.exercises.some((exercise) => exercise.id === exerciseId)) return workouts;
   return workouts.map((workout) => workout.id !== workoutId || workout.exercises.length <= 1 ? workout : {
     ...workout,
-    exercises: workout.exercises.filter((exercise) => exercise.id !== exerciseId),
+    exercises: normalizeSupersetPairs(workout.exercises.filter((exercise) => exercise.id !== exerciseId)),
   });
 }
 
@@ -549,12 +551,53 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
 }
 
 export function moveWorkoutExercise(workout: Workout, exerciseId: string, direction: -1 | 1): Workout {
-  const index = workout.exercises.findIndex((exercise) => exercise.id === exerciseId);
+  const blocks = workout.exercises.reduce<Exercise[][]>((result, exercise) => {
+    const previous = result.at(-1);
+    if (exercise.supersetId && previous?.[0].supersetId === exercise.supersetId) previous.push(exercise);
+    else result.push([exercise]);
+    return result;
+  }, []);
+  const index = blocks.findIndex((block) => block.some((exercise) => exercise.id === exerciseId));
   const destination = index + direction;
-  if (index < 0 || destination < 0 || destination >= workout.exercises.length) return workout;
-  const exercises = [...workout.exercises];
-  [exercises[index], exercises[destination]] = [exercises[destination], exercises[index]];
-  return { ...workout, exercises };
+  if (index < 0 || destination < 0 || destination >= blocks.length) return workout;
+  const reordered = [...blocks];
+  [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
+  return { ...workout, exercises: reordered.flat() };
+}
+
+export function toggleWorkoutSuperset(workout: Workout, exerciseId: string): Workout {
+  const index = workout.exercises.findIndex((exercise) => exercise.id === exerciseId);
+  if (index < 0) return workout;
+  const selected = workout.exercises[index];
+  if (selected.supersetId) {
+    return {
+      ...workout,
+      exercises: workout.exercises.map((exercise) => exercise.supersetId === selected.supersetId ? { ...exercise, supersetId: undefined } : exercise),
+    };
+  }
+  const partner = workout.exercises[index + 1];
+  if (!partner) return workout;
+  const replacedIds = new Set([selected.supersetId, partner.supersetId].filter((id): id is string => Boolean(id)));
+  const supersetId = `superset-${selected.id}-${partner.id}`;
+  return {
+    ...workout,
+    exercises: workout.exercises.map((exercise) => {
+      if (exercise.id === selected.id || exercise.id === partner.id) return { ...exercise, supersetId };
+      return exercise.supersetId && replacedIds.has(exercise.supersetId) ? { ...exercise, supersetId: undefined } : exercise;
+    }),
+  };
+}
+
+export function normalizeSupersetPairs(exercises: Exercise[]): Exercise[] {
+  const members = new Map<string, number[]>();
+  exercises.forEach((exercise, index) => {
+    if (!exercise.supersetId) return;
+    members.set(exercise.supersetId, [...(members.get(exercise.supersetId) ?? []), index]);
+  });
+  const validIds = new Set([...members.entries()]
+    .filter(([, indexes]) => indexes.length === 2 && indexes[1] === indexes[0] + 1)
+    .map(([id]) => id));
+  return exercises.map((exercise) => exercise.supersetId && !validIds.has(exercise.supersetId) ? { ...exercise, supersetId: undefined } : exercise);
 }
 
 export function createCustomExercise(name: string, now = new Date()): Exercise {

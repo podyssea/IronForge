@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { initialFourDaySplit, startActiveSession } from "../domain/training";
+import { initialFourDaySplit, startActiveSession, toggleWorkoutSuperset } from "../domain/training";
 import { DEFAULT_APP_SETTINGS, migrateStoredState } from "./migrations";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 
@@ -156,6 +156,20 @@ describe("storage migrations", () => {
     const migrated = migrateStoredState({ schemaVersion: 13, workouts, records: [], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine });
     expect(migrated?.previousRoutine).toEqual(previousRoutine);
     expect(migrated).not.toHaveProperty("schemaVersion");
+  });
+
+  it("restores valid supersets and clears orphaned pair identifiers", () => {
+    const workouts = initialFourDaySplit();
+    workouts[0] = toggleWorkoutSuperset(workouts[0], workouts[0].exercises[0].id);
+    const activeSession = startActiveSession(workouts[0]);
+    activeSession.exercises[1].supersetId = undefined;
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+
+    const migrated = migrateStoredState({ schemaVersion: 13, workouts, records: [], program: currentProgram, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
+
+    expect(migrated?.workouts[0].exercises[0].supersetId).toBeTruthy();
+    expect(migrated?.workouts[0].exercises[1].supersetId).toBe(migrated?.workouts[0].exercises[0].supersetId);
+    expect(migrated?.activeSession?.exercises.every((exercise) => !exercise.supersetId)).toBe(true);
   });
 
   it("rejects malformed state", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, updateExercisePrescription, updateExerciseSet, workingSets } from "./training";
+import { addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -16,6 +16,42 @@ describe("program generation", () => {
     const retained = generated.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === "incline-smith");
     expect(retained?.lastWeight).toBe(47.5);
     expect(retained?.sets.every((set) => set.weight === 47.5)).toBe(true);
+  });
+});
+
+describe("workout supersets", () => {
+  it("pairs an exercise with the next exercise and toggles the pair off", () => {
+    const workout = initialFourDaySplit()[0];
+    const paired = toggleWorkoutSuperset(workout, workout.exercises[1].id);
+
+    expect(paired.exercises[1].supersetId).toBeTruthy();
+    expect(paired.exercises[2].supersetId).toBe(paired.exercises[1].supersetId);
+    expect(paired.exercises[0].supersetId).toBeUndefined();
+
+    const unpaired = toggleWorkoutSuperset(paired, paired.exercises[2].id);
+    expect(unpaired.exercises.every((exercise) => exercise.supersetId === undefined)).toBe(true);
+  });
+
+  it("moves a pair as one block and clears an orphan after removal", () => {
+    const workout = initialFourDaySplit()[0];
+    const paired = toggleWorkoutSuperset(workout, workout.exercises[1].id);
+    const moved = moveWorkoutExercise(paired, paired.exercises[2].id, 1);
+    const movedIndexes = moved.exercises.reduce<number[]>((indexes, exercise, index) => exercise.supersetId ? [...indexes, index] : indexes, []);
+    expect(movedIndexes).toHaveLength(2);
+    expect(movedIndexes[1]).toBe(movedIndexes[0] + 1);
+
+    const removed = removeWorkoutExercise([paired], paired.id, paired.exercises[1].id)[0];
+    expect(removed.exercises.every((exercise) => exercise.supersetId === undefined)).toBe(true);
+  });
+
+  it("copies live superset edits back to the workout after completion", () => {
+    const workout = initialFourDaySplit()[0];
+    const session = startActiveSession(workout);
+    session.exercises = toggleWorkoutSuperset({ ...workout, exercises: session.exercises }, session.exercises[0].id).exercises;
+
+    const updated = applySessionPerformance([workout], session)[0];
+    expect(updated.exercises[0].supersetId).toBeTruthy();
+    expect(updated.exercises[1].supersetId).toBe(updated.exercises[0].supersetId);
   });
 });
 

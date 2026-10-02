@@ -1,4 +1,4 @@
-import { ActiveSession, Exercise, normalizeExercisePrescription, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { ActiveSession, Exercise, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
@@ -292,15 +292,15 @@ function isCoachingDecision(value: unknown): value is CoachingDecision {
 }
 
 function normalizeRecords(records: SessionRecord[]): SessionRecord[] {
-  return records.map((record) => ({ ...record, notes: record.notes ?? "", exercises: record.exercises.map(normalizeExercise) }));
+  return records.map((record) => ({ ...record, notes: record.notes ?? "", exercises: normalizeSupersetPairs(record.exercises.map(normalizeExercise)) }));
 }
 
 function normalizeActiveSession(session: ActiveSession | null): ActiveSession | null {
-  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "", exercises: session.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise))) } : null;
+  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "", exercises: normalizeSupersetPairs(session.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise)))) } : null;
 }
 
 function normalizeWorkouts(workouts: Workout[]): Workout[] {
-  return workouts.map((workout) => ({ ...workout, exercises: workout.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise))) }));
+  return workouts.map((workout) => ({ ...workout, exercises: normalizeSupersetPairs(workout.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise)))) }));
 }
 
 function recoverPreviousRoutine(workouts: Workout[], records: SessionRecord[]): PreviousRoutine | null {
@@ -384,6 +384,7 @@ function isExercise(value: unknown): value is Exercise {
     && (value.loadingType === undefined || value.loadingType === "pin-loaded" || value.loadingType === "plate-loaded")
     && (value.loadIncrement === undefined || (isFiniteNumber(value.loadIncrement) && value.loadIncrement > 0))
     && (value.restSeconds === undefined || (Number.isInteger(value.restSeconds) && (value.restSeconds as number) >= 15 && (value.restSeconds as number) <= 600))
+    && (value.supersetId === undefined || typeof value.supersetId === "string")
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set)
       && isFiniteNumber(set.weight)

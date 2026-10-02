@@ -31,13 +31,14 @@ type WorkoutScreenProps = {
   onAddSet: (id: string) => void;
   onRemoveSet: (id: string) => void;
   onMoveExercise: (id: string, direction: -1 | 1) => void;
+  onToggleSuperset: (id: string) => void;
   defaultRestSeconds: number;
   onFocusedExerciseChange: (id: string | null) => void;
   onExerciseLayout: (id: string, event: LayoutChangeEvent) => void;
   onWorkingLoadChange: (id: string, weight: number) => void;
 };
 
-export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, canStart = true, onSetChange, onFinish, onCancel, onReplaceExercise, onRemoveExercise, onAddExercise, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout, onWorkingLoadChange }: WorkoutScreenProps) {
+export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, canStart = true, onSetChange, onFinish, onCancel, onReplaceExercise, onRemoveExercise, onAddExercise, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onToggleSuperset, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout, onWorkingLoadChange }: WorkoutScreenProps) {
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const [restNotificationId, setRestNotificationId] = useState<string | null>(null);
   const [restExerciseName, setRestExerciseName] = useState("Exercise");
@@ -67,6 +68,8 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
   const restRemaining = restEndsAt ? Math.max(0, Math.ceil((restEndsAt - now) / 1000)) : 0;
 
   async function startRest(exercise: Exercise, overrideSeconds?: number) {
+    const exerciseIndex = displayedWorkout.exercises.findIndex((item) => item.id === exercise.id);
+    if (exercise.supersetId && displayedWorkout.exercises[exerciseIndex + 1]?.supersetId === exercise.supersetId) return;
     const seconds = overrideSeconds ?? exercise.restSeconds ?? defaultRestSeconds;
     await cancelRestNotification(restNotificationId);
     setNow(Date.now());
@@ -108,6 +111,10 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const volume = sessionVolume(displayedWorkout.exercises);
   const currentDate = new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
+  const supersetOrder = new Map<string, number>();
+  displayedWorkout.exercises.forEach((exercise) => {
+    if (exercise.supersetId && !supersetOrder.has(exercise.supersetId)) supersetOrder.set(exercise.supersetId, supersetOrder.size + 1);
+  });
 
   return <>
     <View style={styles.topline}><View style={styles.brand}><Image source={require("../../assets/icon.png")} resizeMode="contain" style={styles.brandLogo} accessibilityLabel="GymJournal" /><Text style={styles.brandText}>GYMJOURNAL</Text></View><Text style={styles.live}>● {activeSession ? "SESSION ACTIVE" : "READY"}</Text></View>
@@ -120,7 +127,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{displayWeight(volume, weightUnit).toLocaleString()}</Text><Text style={styles.summaryLabel}>{weightUnitLabel(weightUnit).toUpperCase()} VOLUME</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{displayedWorkout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
     {!activeSession && canStart && <><Pressable accessibilityRole="button" accessibilityState={{ selected: deloadEnabled }} onPress={onDeloadToggle} style={[styles.deload, deloadEnabled && styles.deloadActive]}><Text style={[styles.deloadText, deloadEnabled && styles.deloadTextActive]}>{deloadEnabled ? "✓ DELOAD ON · 75%" : "DELOAD · 75%"}</Text></Pressable><Text style={styles.deloadHint}>Reduces this workout's working weights only</Text><Pressable style={styles.finish} onPress={onBegin}><Text style={styles.finishText}>START WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable></>}
     {!activeSession && !canStart && <Text style={styles.draftHint}>Edit this draft as needed, then activate the plan from the Program tab before starting it.</Text>}
-    {displayedWorkout.exercises.map((exercise, number) => <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} expanded={expandedExerciseIds.has(exercise.id)} highlighted={Boolean(activeSession) && highlightedExerciseId === exercise.id} onToggleExpanded={toggleExerciseExpanded} onExerciseCompleted={advanceFromExercise} onChange={onSetChange} onReplace={onReplaceExercise} onRemoveExercise={displayedWorkout.exercises.length > 1 ? onRemoveExercise : undefined} onLoadingType={onLoadingType} onAddSet={onAddSet} onRemoveSet={onRemoveSet} onMove={onMoveExercise} canMoveUp={number > 0} canMoveDown={number < displayedWorkout.exercises.length - 1} weightUnit={weightUnit} onSetCompleted={startRest} onLayout={onExerciseLayout} onWorkingLoadChange={onWorkingLoadChange} />)}
+    {displayedWorkout.exercises.map((exercise, number) => { const pairIndex = exercise.supersetId ? displayedWorkout.exercises.findIndex((item) => item.id !== exercise.id && item.supersetId === exercise.supersetId) : -1; const pair = pairIndex >= 0 ? displayedWorkout.exercises[pairIndex] : undefined; const groupNumber = exercise.supersetId ? supersetOrder.get(exercise.supersetId) : undefined; const member = pairIndex > number ? "1" : "2"; const blockStart = pairIndex >= 0 ? Math.min(number, pairIndex) : number; const blockEnd = pairIndex >= 0 ? Math.max(number, pairIndex) : number; return <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} expanded={expandedExerciseIds.has(exercise.id)} highlighted={Boolean(activeSession) && highlightedExerciseId === exercise.id} onToggleExpanded={toggleExerciseExpanded} onExerciseCompleted={advanceFromExercise} onChange={onSetChange} onReplace={onReplaceExercise} onRemoveExercise={displayedWorkout.exercises.length > 1 ? onRemoveExercise : undefined} onLoadingType={onLoadingType} onAddSet={onAddSet} onRemoveSet={onRemoveSet} onMove={onMoveExercise} canMoveUp={blockStart > 0} canMoveDown={blockEnd < displayedWorkout.exercises.length - 1} weightUnit={weightUnit} onSetCompleted={startRest} onLayout={onExerciseLayout} onWorkingLoadChange={onWorkingLoadChange} supersetLabel={groupNumber ? `${groupNumber} · A${member}` : undefined} supersetPartnerName={pair?.name} canSupersetWithNext={number < displayedWorkout.exercises.length - 1} onToggleSuperset={onToggleSuperset} />; })}
     <Pressable onPress={onAddExercise} style={styles.addExercise}><Text style={styles.addExerciseText}>＋ ADD EXERCISE TO WORKOUT</Text></Pressable>
     {activeSession && <><Pressable style={styles.finish} onPress={onFinish}><Text style={styles.finishText}>FINISH WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable><Pressable style={styles.cancel} onPress={onCancel}><Text style={styles.cancelText}>CANCEL WORKOUT</Text></Pressable></>}
   </>;
