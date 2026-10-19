@@ -98,7 +98,7 @@ export default function App() {
   const visibleWorkouts = visibleTemporaryPlan?.workouts ?? workouts;
   const selectedWorkoutIndex = selected < visibleWorkouts.length ? selected : 0;
   const workout = visibleWorkouts[selectedWorkoutIndex];
-  const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises } : workout;
+  const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, estimatedDurationMinutes: activeSession.estimatedDurationMinutes, strengthPriority: activeSession.strengthPriority, exercises: activeSession.exercises } : workout;
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && !setValidationError(set, exercise, index)).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
   const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);

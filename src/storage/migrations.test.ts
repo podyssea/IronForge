@@ -149,12 +149,22 @@ describe("storage migrations", () => {
     expect(migrated?.previousRoutine).toBeNull();
   });
 
-  it("retains a previous routine snapshot in schema version 13", () => {
+  it("applies the strength-focused split once from schema version 13 and preserves known loads", () => {
     const workouts = initialFourDaySplit();
+    workouts[3].exercises.find((exercise) => exercise.id === "hack-squat")!.lastWeight = 137.5;
     const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
     const previousRoutine = { workouts, routineStartedAt: "2026-07-01T08:00:00.000Z", routineChangeDeferred: true };
     const migrated = migrateStoredState({ schemaVersion: 13, workouts, records: [], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine });
-    expect(migrated?.previousRoutine).toEqual(previousRoutine);
+    expect(migrated?.workouts.map((workout) => workout.title)).toEqual([
+      "Day 1 · Upper: Horizontal Focus",
+      "Day 2 · Lower: Squat Focus",
+      "Day 3 · Upper: Vertical Focus",
+      "Day 4 · Lower: Deadlift Focus",
+    ]);
+    expect(migrated?.workouts[1].exercises.find((exercise) => exercise.id === "hack-squat")?.lastWeight).toBe(137.5);
+    expect(migrated?.workouts[0].exercises[0]).toMatchObject({ targetSets: 4, repRange: [3, 5], rirRange: [1, 2], restSeconds: 180, programmedWorkingSets: true });
+    expect(migrated?.previousRoutine?.workouts).toEqual(workouts);
+    expect(migrated?.program).toMatchObject({ trainingDays: 4, phase: "strength", routineChangeDeferred: false });
     expect(migrated).not.toHaveProperty("schemaVersion");
   });
 
@@ -165,7 +175,7 @@ describe("storage migrations", () => {
     activeSession.exercises[1].supersetId = undefined;
     const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
 
-    const migrated = migrateStoredState({ schemaVersion: 13, workouts, records: [], program: currentProgram, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
+    const migrated = migrateStoredState({ schemaVersion: 14, workouts, records: [], program: currentProgram, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
 
     expect(migrated?.workouts[0].exercises[0].supersetId).toBeTruthy();
     expect(migrated?.workouts[0].exercises[1].supersetId).toBe(migrated?.workouts[0].exercises[0].supersetId);

@@ -86,3 +86,107 @@ export function personalBaselineRecords(): SessionRecord[] {
     };
   }).reverse();
 }
+
+type StrengthPrescription = {
+  id: string;
+  name: string;
+  sets: number;
+  reps: [number, number];
+  rir: [number, number];
+  rest: [number, number];
+};
+
+const strengthSchedule: Array<Omit<Workout, "exercises"> & { exercises: StrengthPrescription[] }> = [
+  {
+    id: "upper-a",
+    title: "Day 1 · Upper: Horizontal Focus",
+    focus: "Bench strength · horizontal pulling · chest and triceps",
+    estimatedDurationMinutes: [65, 70],
+    strengthPriority: "Bench press first, before other pressing",
+    exercises: [
+      { id: "barbell-bench", name: "Barbell Bench Press", sets: 4, reps: [3, 5], rir: [1, 2], rest: [180, 180] },
+      { id: "tbar-row", name: "Chest-Supported Row", sets: 3, reps: [5, 8], rir: [1, 2], rest: [120, 120] },
+      { id: "incline-dumbbell", name: "Incline Dumbbell Press", sets: 2, reps: [6, 10], rir: [1, 2], rest: [120, 120] },
+      { id: "seated-cable-row", name: "Seated Cable Row", sets: 2, reps: [8, 12], rir: [1, 2], rest: [90, 90] },
+      { id: "lateral-raise", name: "Cable Lateral Raise", sets: 3, reps: [12, 15], rir: [1, 1], rest: [60, 60] },
+      { id: "rope-pushdown", name: "Rope Triceps Pushdown", sets: 2, reps: [10, 12], rir: [1, 1], rest: [60, 60] },
+      { id: "ez-bar-curl", name: "EZ-Bar Curl", sets: 2, reps: [8, 12], rir: [1, 1], rest: [60, 60] },
+    ],
+  },
+  {
+    id: "lower-a",
+    title: "Day 2 · Lower: Squat Focus",
+    focus: "Squat strength · quadriceps · unilateral stability",
+    estimatedDurationMinutes: [65, 75],
+    strengthPriority: "Back squat depth and bracing; avoid technique-breaking grinders",
+    exercises: [
+      { id: "back-squat", name: "Barbell Back Squat", sets: 4, reps: [3, 5], rir: [1, 2], rest: [180, 240] },
+      { id: "hack-squat", name: "Hack Squat", sets: 3, reps: [6, 10], rir: [1, 2], rest: [120, 120] },
+      { id: "seated-leg-curl", name: "Seated Leg Curl", sets: 3, reps: [8, 12], rir: [1, 1], rest: [90, 90] },
+      { id: "split-squat", name: "Bulgarian Split Squat", sets: 2, reps: [8, 8], rir: [2, 2], rest: [90, 90] },
+      { id: "standing-calf", name: "Standing Calf Raise", sets: 3, reps: [8, 12], rir: [1, 1], rest: [60, 60] },
+      { id: "cable-crunch", name: "Cable Crunch", sets: 3, reps: [10, 15], rir: [1, 1], rest: [60, 60] },
+    ],
+  },
+  {
+    id: "upper-b",
+    title: "Day 3 · Upper: Vertical Focus",
+    focus: "Overhead strength · weighted pull-ups · shoulders and lats",
+    estimatedDurationMinutes: [65, 75],
+    strengthPriority: "Overhead press and weighted pull-ups; alternate first movement by block",
+    exercises: [
+      { id: "overhead-press", name: "Barbell Overhead Press", sets: 4, reps: [3, 5], rir: [1, 2], rest: [180, 180] },
+      { id: "pull-ups", name: "Weighted Pull-Ups", sets: 4, reps: [4, 6], rir: [1, 2], rest: [120, 180] },
+      { id: "close-grip-bench", name: "Close-Grip Bench Press", sets: 3, reps: [6, 8], rir: [1, 2], rest: [120, 120] },
+      { id: "lat-pulldown", name: "Neutral-Grip Lat Pulldown", sets: 2, reps: [8, 12], rir: [1, 1], rest: [90, 90] },
+      { id: "lateral-raise", name: "Cable Lateral Raise", sets: 3, reps: [12, 20], rir: [1, 1], rest: [60, 60] },
+      { id: "reverse-pec-deck", name: "Reverse Pec Deck", sets: 2, reps: [12, 15], rir: [1, 1], rest: [60, 60] },
+      { id: "incline-dumbbell-curl", name: "Incline Dumbbell Curl", sets: 2, reps: [8, 12], rir: [1, 1], rest: [60, 60] },
+    ],
+  },
+  {
+    id: "lower-b",
+    title: "Day 4 · Lower: Deadlift Focus",
+    focus: "Deadlift strength · posterior chain · secondary quad development",
+    exercises: [
+      { id: "conventional-deadlift", name: "Conventional Deadlift", sets: 3, reps: [3, 5], rir: [2, 2], rest: [180, 240] },
+      { id: "front-squat", name: "Front Squat", sets: 3, reps: [5, 8], rir: [2, 2], rest: [120, 180] },
+      { id: "rdl", name: "Romanian Deadlift", sets: 2, reps: [6, 8], rir: [2, 2], rest: [120, 120] },
+      { id: "lying-curl", name: "Lying Leg Curl", sets: 2, reps: [10, 12], rir: [1, 1], rest: [90, 90] },
+      { id: "seated-calf", name: "Seated Calf Raise", sets: 3, reps: [10, 15], rir: [1, 1], rest: [60, 60] },
+      { id: "hanging-leg-raise", name: "Hanging Leg Raise", sets: 3, reps: [10, 15], rir: [1, 1], rest: [60, 60] },
+    ],
+  },
+];
+
+export function strengthFocusedFourDaySplit(existing: Workout[] = [], records: SessionRecord[] = []): Workout[] {
+  const current = new Map(existing.flatMap((workout) => workout.exercises.map((exercise) => [exercise.id, exercise] as const)));
+  const historical = new Map<string, Workout["exercises"][number]>();
+  [...records].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()).forEach((record) => {
+    record.exercises.forEach((exercise) => { if (!historical.has(exercise.id)) historical.set(exercise.id, exercise); });
+  });
+
+  return strengthSchedule.map((workout) => ({
+    ...workout,
+    exercises: workout.exercises.map((prescription) => {
+      const known = current.get(prescription.id) ?? historical.get(prescription.id);
+      const weight = known?.lastWeight ?? 0;
+      const lastReps = Math.max(prescription.reps[0], Math.min(prescription.reps[1], known?.lastReps ?? prescription.reps[0]));
+      return {
+        id: prescription.id,
+        name: prescription.name,
+        targetSets: prescription.sets,
+        repRange: prescription.reps,
+        rirRange: prescription.rir,
+        restSeconds: prescription.rest[0],
+        restSecondsMax: prescription.rest[1],
+        programmedWorkingSets: true,
+        lastWeight: weight,
+        lastReps,
+        loadingType: known?.loadingType,
+        loadIncrement: known?.loadIncrement,
+        sets: Array.from({ length: prescription.sets }, () => ({ weight, reps: prescription.reps[0], completed: false })),
+      };
+    }),
+  }));
+}

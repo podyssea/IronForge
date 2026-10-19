@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { personalBaselineRecords, personalBaselineWorkouts } from "./personalBaseline";
+import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "./personalBaseline";
+import { normalizeExercisePrescription, updateExercisePrescription } from "./training";
 
 describe("personal training baseline", () => {
   it("builds the requested four-day upper/lower split", () => {
@@ -25,5 +26,20 @@ describe("personal training baseline", () => {
   it("calculates imported volume from valid completed sets", () => {
     const upperA = personalBaselineRecords().find((record) => record.sourceWorkoutId === "upper-a");
     expect(upperA?.volume).toBe(11405);
+  });
+
+  it("builds the prescribed strength split and carries forward matching exercise loads", () => {
+    const existing = personalBaselineWorkouts();
+    const workouts = strengthFocusedFourDaySplit(existing, personalBaselineRecords());
+
+    expect(workouts.map((workout) => workout.exercises.length)).toEqual([7, 6, 7, 6]);
+    expect(workouts[0].exercises[0]).toMatchObject({ name: "Barbell Bench Press", targetSets: 4, repRange: [3, 5], rirRange: [1, 2], restSeconds: 180 });
+    expect(workouts[0].exercises.find((exercise) => exercise.id === "tbar-row")?.lastWeight).toBe(60);
+    expect(workouts[1].exercises.find((exercise) => exercise.id === "hack-squat")?.lastWeight).toBe(120);
+    expect(workouts[3].exercises.find((exercise) => exercise.id === "rdl")?.lastWeight).toBe(100);
+    expect(workouts[2].exercises.find((exercise) => exercise.id === "overhead-press")?.lastWeight).toBe(0);
+    expect(workouts.every((workout) => workout.exercises.every((exercise) => exercise.sets.length === exercise.targetSets && exercise.programmedWorkingSets))).toBe(true);
+    expect(normalizeExercisePrescription(workouts[0].exercises[0]).repRange).toEqual([3, 5]);
+    expect(updateExercisePrescription(workouts[0].exercises[0], { targetSets: 5 }).repRange).toEqual([3, 5]);
   });
 });

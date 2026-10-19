@@ -22,18 +22,21 @@ export type Exercise = {
   loadingType?: LoadingType;
   loadIncrement?: number;
   restSeconds?: number;
+  restSecondsMax?: number;
+  rirRange?: [number, number];
+  programmedWorkingSets?: boolean;
   supersetId?: string;
 };
 
-export type Workout = { id: string; title: string; focus: string; exercises: Exercise[] };
+export type Workout = { id: string; title: string; focus: string; exercises: Exercise[]; estimatedDurationMinutes?: [number, number]; strengthPriority?: string };
 export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
-export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; exercises: Exercise[] };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; estimatedDurationMinutes?: [number, number]; strengthPriority?: string; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 const THREE_BY_THREE_EXERCISE_IDS = new Set(["back-squat", "conventional-deadlift"]);
 
 export function isThreeByThreeExercise(exercise: Pick<Exercise, "id">): boolean {
-  return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id);
+  return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id) && !("programmedWorkingSets" in exercise && exercise.programmedWorkingSets);
 }
 
 function exercise(id: string, name: string, targetSets: number, repRange: [number, number], weight: number): SeedExercise {
@@ -115,7 +118,7 @@ export function sessionVolume(exercises: Exercise[]): number {
 
 export function setValidationError(set: SetLog, exercise?: Exercise, setIndex = 0): string | null {
   if (!Number.isFinite(set.weight) || set.weight < 0) return "Weight must be zero or greater";
-  const minimumReps = exercise && isThreeByThreeExercise(exercise) ? 3 : 6;
+  const minimumReps = exercise ? Math.min(6, exercise.repRange[0]) : 6;
   if (!Number.isInteger(set.reps) || set.reps < minimumReps) return `Enter at least ${minimumReps} reps`;
   return null;
 }
@@ -134,6 +137,8 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     workoutId: workout.id,
     workoutTitle: workout.title,
     focus: workout.focus,
+    estimatedDurationMinutes: workout.estimatedDurationMinutes,
+    strengthPriority: workout.strengthPriority,
     startedAt: now.toISOString(),
     notes: "",
     focusedExerciseId: exercises[0]?.id,
@@ -158,6 +163,7 @@ export function applyDeloadToSession(session: ActiveSession): ActiveSession {
 }
 
 export function workingSetStartIndex(exercise: Exercise): number {
+  if (exercise.programmedWorkingSets) return 0;
   return Math.max(0, exercise.sets.length - (isThreeByThreeExercise(exercise) ? 3 : 2));
 }
 
@@ -449,8 +455,9 @@ export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string
   const completed = workingSets(exercise).filter((set) => set.completed);
   const best = bestCompletedWorkingSet(exercise);
   if (isThreeByThreeExercise(exercise)) return completed.length === 3 && completed.every((set) => set.reps >= 3) && best ? `3×3 conquered at ${displayWeight(best.weight, unit)} ${weightUnitLabel(unit)} total · ${displayExerciseWeight(best.weight, exercise, unit)} ${exerciseWeightLabel(exercise, unit)}. Increase conservatively next time.` : "Complete all 3 working sets of 3 to conquer this load";
-  if (completed.length === Math.min(2, exercise.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${displayExerciseWeight(best.weight + loadIncrement({ ...exercise, lastWeight: best.weight }), exercise, unit)} ${exerciseWeightLabel(exercise, unit)} next time`;
-  return `Progress when both working sets reach ${exercise.repRange[1]} reps`;
+  const requiredSets = exercise.programmedWorkingSets ? exercise.targetSets : Math.min(2, exercise.sets.length);
+  if (completed.length === requiredSets && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${displayExerciseWeight(best.weight + loadIncrement({ ...exercise, lastWeight: best.weight }), exercise, unit)} ${exerciseWeightLabel(exercise, unit)} next time`;
+  return `Progress when all ${requiredSets} working sets reach ${exercise.repRange[1]} reps`;
 }
 
 export function loadIncrement(exercise: Exercise): number {
@@ -506,6 +513,7 @@ export function weightUnitLabel(unit: WeightUnit): string {
 export function updateExercisePrescription(exercise: Exercise, changes: { name?: string; targetSets?: number; repRange?: [number, number]; loadIncrement?: number; restSeconds?: number }): Exercise {
   const targetSets = Math.max(2, Math.min(8, changes.targetSets ?? exercise.targetSets));
   const repRange = changes.repRange ?? exercise.repRange;
+  const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;
   const sets = Array.from({ length: targetSets }, (_, index) => exercise.sets[index] ?? {
     weight: exercise.lastWeight,
     reps: repRange[0],
@@ -515,7 +523,7 @@ export function updateExercisePrescription(exercise: Exercise, changes: { name?:
     ...exercise,
     ...changes,
     targetSets,
-    repRange: [Math.max(6, repRange[0]), Math.max(repRange[0], repRange[1])],
+    repRange: [Math.max(minimumAllowedReps, repRange[0]), Math.max(repRange[0], repRange[1])],
     sets,
   });
 }
@@ -534,18 +542,19 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
     const normalized = { ...exercise, targetSets: 6, repRange: [3, 3] as [number, number], lastReps: 3, sets: sourceSets.map((set, index) => ({ ...set, reps: [5, 5, 3, 3, 3, 3][index] ?? 3 })) };
     return exercise.sets.length === 6 ? normalized : applyWarmupLoads(normalized, exercise.lastWeight);
   }
-  const maximumReps = modality === "compound" ? 10 : modality === "isolation" ? 20 : 12;
-  const minimumReps = Math.min(maximumReps, Math.max(6, exercise.repRange[0]));
+  const maximumReps = modality === "compound" ? (exercise.programmedWorkingSets ? 12 : 10) : modality === "isolation" ? 20 : 12;
+  const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;
+  const minimumReps = Math.min(maximumReps, Math.max(minimumAllowedReps, exercise.repRange[0]));
   const targetSets = exercise.targetSets;
   const repRange: [number, number] = [minimumReps, Math.min(maximumReps, Math.max(minimumReps, exercise.repRange[1]))];
   return {
     ...exercise,
     targetSets,
     repRange,
-    lastReps: Math.min(maximumReps, Math.max(6, exercise.lastReps)),
+    lastReps: Math.min(maximumReps, Math.max(minimumAllowedReps, exercise.lastReps)),
     sets: Array.from({ length: targetSets }, (_, index) => {
       const source = exercise.sets[index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: minimumReps, completed: false };
-      return { ...source, reps: Math.min(maximumReps, Math.max(6, source.reps)) };
+      return { ...source, reps: Math.min(maximumReps, Math.max(minimumAllowedReps, source.reps)) };
     }),
   };
 }

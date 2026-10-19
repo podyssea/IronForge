@@ -1,8 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
-import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
+import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "../domain/personalBaseline";
 import { normalizeExercisePrescription } from "../domain/training";
-import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, normalizeProgramPreferences, ProgramPreferences, StoredAppStateV13 } from "./migrations";
+import { AppState, CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, isProgramPreferences, isSessionRecordArray, isWorkoutArray, migrateStoredState, normalizeProgramPreferences, ProgramPreferences, StoredAppStateV14 } from "./migrations";
 
 const APP_STATE_KEY = "ironforge-app-state";
 const LEGACY_WORKOUTS_KEY = "ironforge-workouts-v1";
@@ -11,10 +11,12 @@ const LEGACY_PROGRAM_KEY = "ironforge-program-v1";
 
 export type { AppState, ProgramPreferences } from "./migrations";
 
-function defaultProgram(): ProgramPreferences { return normalizeProgramPreferences({ trainingDays: 4, phase: "hypertrophy" }); }
+function defaultProgram(): ProgramPreferences { return normalizeProgramPreferences({ trainingDays: 4, phase: "strength" }); }
 
 export function createDefaultAppState(): AppState {
-  return { workouts: personalBaselineWorkouts().map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercisePrescription) })), records: personalBaselineRecords(), program: defaultProgram(), activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS }, temporaryPlans: [], previousRoutine: null };
+  const records = personalBaselineRecords();
+  const workouts = strengthFocusedFourDaySplit(personalBaselineWorkouts(), records).map((workout) => ({ ...workout, exercises: workout.exercises.map(normalizeExercisePrescription) }));
+  return { workouts, records, program: defaultProgram(), activeSession: null, coachingProfile: { ...DEFAULT_COACHING_PROFILE }, coachingDecisions: [], settings: { ...DEFAULT_APP_SETTINGS }, temporaryPlans: [], previousRoutine: null };
 }
 
 export async function loadAppState(): Promise<AppState> {
@@ -29,7 +31,7 @@ export async function loadAppState(): Promise<AppState> {
 }
 
 export async function saveAppState(state: AppState): Promise<void> {
-  const stored: StoredAppStateV13 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
+  const stored: StoredAppStateV14 = { schemaVersion: CURRENT_SCHEMA_VERSION, ...state };
   await AsyncStorage.setItem(APP_STATE_KEY, JSON.stringify(stored));
 }
 

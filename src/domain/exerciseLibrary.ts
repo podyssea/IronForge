@@ -124,7 +124,9 @@ export const EXERCISE_LIBRARY: ExerciseDefinition[] = [
   defineExercise("single-leg-calf", "Single-Leg Calf Raise", "calf-raise", ["calves"], ["bodyweight", "dumbbell"], "beginner", "isolation", { unilateral: true, substitutions: ["standing-calf", "seated-calf"] }),
 
   defineExercise("barbell-curl", "Barbell Curl", "elbow-flexion", ["biceps"], ["barbell"], "beginner", "isolation", { secondary: ["forearms"], substitutions: ["dumbbell-curl", "preacher-curl"] }),
+  defineExercise("ez-bar-curl", "EZ-Bar Curl", "elbow-flexion", ["biceps"], ["barbell"], "beginner", "isolation", { secondary: ["forearms"], substitutions: ["barbell-curl", "preacher-curl"] }),
   defineExercise("dumbbell-curl", "Dumbbell Curl", "elbow-flexion", ["biceps"], ["dumbbell"], "beginner", "isolation", { secondary: ["forearms"], substitutions: ["barbell-curl", "cable-curl"] }),
+  defineExercise("incline-dumbbell-curl", "Incline Dumbbell Curl", "elbow-flexion", ["biceps"], ["dumbbell"], "intermediate", "isolation", { secondary: ["forearms"], substitutions: ["dumbbell-curl", "preacher-curl"], resistanceProfile: "lengthened" }),
   defineExercise("cable-curl", "Cable Curl", "elbow-flexion", ["biceps"], ["cable"], "beginner", "isolation", { substitutions: ["dumbbell-curl", "preacher-curl"] }),
   defineExercise("preacher-curl", "Unilateral Preacher Curl", "elbow-flexion", ["biceps"], ["machine", "dumbbell"], "beginner", "isolation", { unilateral: true, substitutions: ["cable-curl", "barbell-curl"] }),
   defineExercise("hammer-curl", "Unilateral Hammer Curl", "elbow-flexion", ["biceps", "forearms"], ["dumbbell", "cable"], "beginner", "isolation", { unilateral: true, substitutions: ["dumbbell-curl", "cable-curl"] }),
@@ -140,6 +142,7 @@ export const EXERCISE_LIBRARY: ExerciseDefinition[] = [
   defineExercise("pallof-press", "Pallof Press", "core", ["core"], ["cable", "resistance-band"], "beginner", "isolation", { substitutions: ["plank", "dead-bug"] }),
   defineExercise("cable-crunch", "Cable Crunch", "core", ["core"], ["cable"], "beginner", "isolation", { substitutions: ["machine-crunch"] }),
   defineExercise("machine-crunch", "Machine Crunch", "core", ["core"], ["machine"], "beginner", "isolation", { substitutions: ["cable-crunch"] }),
+  defineExercise("hanging-leg-raise", "Hanging Leg Raise", "core", ["core"], ["bodyweight"], "intermediate", "isolation", { substitutions: ["cable-crunch", "machine-crunch"] }),
 
   defineExercise("converging-chest-press", "Converging Chest Press", "horizontal-push", ["chest"], ["machine"], "intermediate", "compound", { secondary: ["front-delts", "triceps"], substitutions: ["machine-chest", "dumbbell-bench"], trainingRole: "stable-compound", resistanceProfile: "balanced", classicPhysiquePriority: 5 }),
   defineExercise("incline-cable-fly", "Low-to-High Incline Cable Fly", "horizontal-push", ["chest"], ["cable"], "intermediate", "isolation", { substitutions: ["cable-fly", "incline-machine"], resistanceProfile: "shortened", classicPhysiquePriority: 5 }),

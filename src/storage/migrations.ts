@@ -1,10 +1,10 @@
 import { ActiveSession, Exercise, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
-import { personalBaselineRecords, personalBaselineWorkouts } from "../domain/personalBaseline";
+import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "../domain/personalBaseline";
 import { TemporaryTrainingPlan } from "../domain/temporaryPlan";
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 export type AppSettings = { weightUnit: WeightUnit; defaultRestSeconds: number };
 export const DEFAULT_APP_SETTINGS: AppSettings = { weightUnit: "kg", defaultRestSeconds: 90 };
@@ -52,6 +52,7 @@ export type StoredAppStateV10 = Omit<AppState, "program" | "previousRoutine"> & 
 export type StoredAppStateV11 = Omit<AppState, "temporaryPlans" | "previousRoutine"> & { schemaVersion: 11 };
 export type StoredAppStateV12 = Omit<AppState, "previousRoutine"> & { schemaVersion: 12 };
 export type StoredAppStateV13 = AppState & { schemaVersion: 13 };
+export type StoredAppStateV14 = AppState & { schemaVersion: 14 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
@@ -101,7 +102,20 @@ export function migrateStoredState(value: unknown): AppState | null {
     case 12:
       return isStoredAppStateV12(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: recoverPreviousRoutine(value.workouts, value.records) } : null;
     case 13:
-      return isStoredAppStateV13(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
+      if (!isStoredAppStateV13(value)) return null;
+      return {
+        workouts: strengthFocusedFourDaySplit(value.workouts, value.records),
+        records: normalizeRecords(value.records),
+        program: { ...value.program, trainingDays: 4, phase: "strength", routineStartedAt: new Date().toISOString(), routineChangeDeferred: false },
+        activeSession: normalizeActiveSession(value.activeSession),
+        coachingProfile: value.coachingProfile,
+        coachingDecisions: value.coachingDecisions,
+        settings: value.settings,
+        temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })),
+        previousRoutine: { workouts: normalizeWorkouts(value.workouts), routineStartedAt: value.program.routineStartedAt, routineChangeDeferred: true },
+      };
+    case 14:
+      return isStoredAppStateV14(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
     default:
       console.warn(`GymJournal: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -258,6 +272,11 @@ function isStoredAppStateV13(value: Record<string, unknown>): value is StoredApp
       && typeof value.previousRoutine.routineChangeDeferred === "boolean"));
 }
 
+function isStoredAppStateV14(value: Record<string, unknown>): value is StoredAppStateV14 {
+  return value.schemaVersion === 14
+    && isStoredAppStateV13({ ...value, schemaVersion: 13 });
+}
+
 function isCurrentProgramPreferences(value: unknown): value is ProgramPreferences {
   if (!isRecord(value)) return false;
   const routineStartedAt = value.routineStartedAt;
@@ -384,6 +403,9 @@ function isExercise(value: unknown): value is Exercise {
     && (value.loadingType === undefined || value.loadingType === "pin-loaded" || value.loadingType === "plate-loaded")
     && (value.loadIncrement === undefined || (isFiniteNumber(value.loadIncrement) && value.loadIncrement > 0))
     && (value.restSeconds === undefined || (Number.isInteger(value.restSeconds) && (value.restSeconds as number) >= 15 && (value.restSeconds as number) <= 600))
+    && (value.restSecondsMax === undefined || (Number.isInteger(value.restSecondsMax) && (value.restSecondsMax as number) >= 15 && (value.restSecondsMax as number) <= 600))
+    && (value.rirRange === undefined || (Array.isArray(value.rirRange) && value.rirRange.length === 2 && value.rirRange.every((item) => isFiniteNumber(item) && item >= 0 && item <= 10)))
+    && (value.programmedWorkingSets === undefined || typeof value.programmedWorkingSets === "boolean")
     && (value.supersetId === undefined || typeof value.supersetId === "string")
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set)
@@ -402,8 +424,14 @@ function isActiveSession(value: unknown): value is ActiveSession {
     && typeof value.startedAt === "string"
     && (value.deload === undefined || typeof value.deload === "boolean")
     && (value.readiness === undefined || isReadiness(value.readiness))
+    && (value.estimatedDurationMinutes === undefined || isDurationRange(value.estimatedDurationMinutes))
+    && (value.strengthPriority === undefined || typeof value.strengthPriority === "string")
     && Array.isArray(value.exercises)
     && value.exercises.every(isExercise);
+}
+
+function isDurationRange(value: unknown): value is [number, number] {
+  return Array.isArray(value) && value.length === 2 && value.every((item) => Number.isInteger(item) && item > 0);
 }
 
 function isReadiness(value: unknown): boolean {
