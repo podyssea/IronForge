@@ -1,3 +1,5 @@
+import { EXERCISE_CATALOG_NAMES } from "./exerciseCatalog";
+
 export type MovementPattern = "horizontal-push" | "vertical-push" | "horizontal-pull" | "vertical-pull" | "squat" | "hinge" | "lunge" | "knee-flexion" | "elbow-flexion" | "elbow-extension" | "shoulder-isolation" | "hip-isolation" | "calf-raise" | "core";
 export type MuscleGroup = "chest" | "upper-back" | "lats" | "front-delts" | "side-delts" | "rear-delts" | "biceps" | "triceps" | "forearms" | "quadriceps" | "hamstrings" | "glutes" | "adductors" | "abductors" | "calves" | "core";
 export type Equipment = "barbell" | "dumbbell" | "cable" | "machine" | "smith-machine" | "bodyweight" | "resistance-band" | "kettlebell";
@@ -51,7 +53,7 @@ function defineExercise(id: string, name: string, movementPattern: MovementPatte
   };
 }
 
-export const EXERCISE_LIBRARY: ExerciseDefinition[] = [
+const CURATED_EXERCISE_LIBRARY: ExerciseDefinition[] = [
   defineExercise("barbell-bench", "Barbell Bench Press", "horizontal-push", ["chest"], ["barbell"], "intermediate", "compound", { secondary: ["front-delts", "triceps"], substitutions: ["dumbbell-bench", "machine-chest"] }),
   defineExercise("dumbbell-bench", "Dumbbell Bench Press", "horizontal-push", ["chest"], ["dumbbell"], "beginner", "compound", { secondary: ["front-delts", "triceps"], substitutions: ["barbell-bench", "machine-chest"] }),
   defineExercise("incline-smith", "Incline Smith Press", "horizontal-push", ["chest"], ["smith-machine"], "beginner", "compound", { secondary: ["front-delts", "triceps"], substitutions: ["incline-dumbbell", "incline-machine"] }),
@@ -170,7 +172,30 @@ export const EXERCISE_LIBRARY: ExerciseDefinition[] = [
   defineExercise("tibialis-raise", "Tibialis Raise", "calf-raise", ["calves"], ["machine", "bodyweight"], "beginner", "isolation", { substitutions: ["standing-calf", "single-leg-calf"], trainingRole: "finisher", classicPhysiquePriority: 3 }),
 ];
 
-const exerciseById = new Map(EXERCISE_LIBRARY.map((exercise) => [exercise.id, exercise]));
+const LEGACY_ID_BY_CATALOG_NAME: Record<string, string> = {
+  "Flat Dumbbell Bench Press": "dumbbell-bench",
+  "Smith Machine Bench Press": "incline-smith",
+  "Incline Machine Chest Press": "incline-machine",
+  "Standard Push-Up": "push-up",
+  "Weighted Pull-Up": "pull-ups",
+  "Machine Shoulder Press": "shoulder-press",
+  "Seated Rear Delt Raise": "rear-delt",
+  "Barbell Romanian Deadlift": "rdl",
+  "Dumbbell Walking Lunge": "walking-lunges",
+  "Hip Abduction Machine": "abductors",
+  "Preacher Curl": "preacher-curl",
+  "Straight-Bar Pushdown": "pushdown",
+  "Seated Dumbbell Overhead Extension": "overhead-extension",
+};
+
+const CATALOG_ID_OVERRIDES: Record<string, string> = {
+  "Sissy Squat": "bodyweight-sissy-squat",
+  "Split Squat": "standard-split-squat",
+  "Nordic Curl": "bodyweight-nordic-curl",
+};
+
+const curatedByName = new Map(CURATED_EXERCISE_LIBRARY.map((exercise) => [exercise.name.toLowerCase(), exercise]));
+const curatedById = new Map(CURATED_EXERCISE_LIBRARY.map((exercise) => [exercise.id, exercise]));
 
 export function getExerciseDefinition(id: string): ExerciseDefinition | undefined {
   return exerciseById.get(id);
@@ -190,3 +215,103 @@ export function filterExerciseLibrary(filters: { equipment?: Equipment[]; muscle
     && (!filters.style || exercise.suitableFor.includes(filters.style))
     && (!filters.maximumDifficulty || difficultyRank[exercise.difficulty] <= difficultyRank[filters.maximumDifficulty]));
 }
+
+type CatalogSection = {
+  start: string;
+  movementPattern: MovementPattern;
+  primaryMuscles: MuscleGroup[];
+  modality: "compound" | "isolation";
+};
+
+const CATALOG_SECTIONS: CatalogSection[] = [
+  { start: "Barbell Bench Press", movementPattern: "horizontal-push", primaryMuscles: ["chest"], modality: "compound" },
+  { start: "Pull-Up", movementPattern: "vertical-pull", primaryMuscles: ["lats", "upper-back"], modality: "compound" },
+  { start: "Standing Barbell Overhead Press", movementPattern: "vertical-push", primaryMuscles: ["front-delts", "side-delts"], modality: "compound" },
+  { start: "Barbell Curl", movementPattern: "elbow-flexion", primaryMuscles: ["biceps"], modality: "isolation" },
+  { start: "Cable Triceps Pushdown", movementPattern: "elbow-extension", primaryMuscles: ["triceps"], modality: "isolation" },
+  { start: "Bodyweight Squat", movementPattern: "squat", primaryMuscles: ["quadriceps", "glutes"], modality: "compound" },
+  { start: "Seated Leg Curl", movementPattern: "knee-flexion", primaryMuscles: ["hamstrings"], modality: "isolation" },
+  { start: "Glute Bridge", movementPattern: "hip-isolation", primaryMuscles: ["glutes"], modality: "isolation" },
+  { start: "Standing Calf Raise", movementPattern: "calf-raise", primaryMuscles: ["calves"], modality: "isolation" },
+  { start: "Crunch", movementPattern: "core", primaryMuscles: ["core"], modality: "isolation" },
+  { start: "Dumbbell Shrug", movementPattern: "horizontal-pull", primaryMuscles: ["upper-back"], modality: "isolation" },
+  { start: "Wrist Curl", movementPattern: "elbow-flexion", primaryMuscles: ["forearms"], modality: "isolation" },
+  { start: "Neck Flexion", movementPattern: "core", primaryMuscles: ["core"], modality: "isolation" },
+  { start: "Conventional Deadlift", movementPattern: "hinge", primaryMuscles: ["glutes", "hamstrings", "core"], modality: "compound" },
+  { start: "Sled Push", movementPattern: "lunge", primaryMuscles: ["quadriceps", "glutes", "core"], modality: "compound" },
+  { start: "Clean", movementPattern: "hinge", primaryMuscles: ["glutes", "hamstrings", "quadriceps"], modality: "compound" },
+  { start: "Dip", movementPattern: "horizontal-push", primaryMuscles: ["chest", "triceps"], modality: "compound" },
+  { start: "Kettlebell Deadlift", movementPattern: "hinge", primaryMuscles: ["glutes", "hamstrings", "core"], modality: "compound" },
+  { start: "Dumbbell Snatch", movementPattern: "hinge", primaryMuscles: ["glutes", "hamstrings", "front-delts"], modality: "compound" },
+  { start: "Treadmill Walking", movementPattern: "lunge", primaryMuscles: ["quadriceps", "glutes", "core"], modality: "compound" },
+  { start: "Squat Jump", movementPattern: "squat", primaryMuscles: ["quadriceps", "glutes"], modality: "compound" },
+  { start: "Cat-Cow", movementPattern: "core", primaryMuscles: ["core"], modality: "isolation" },
+  { start: "Band External Rotation", movementPattern: "shoulder-isolation", primaryMuscles: ["rear-delts"], modality: "isolation" },
+  { start: "Mountain Pose", movementPattern: "core", primaryMuscles: ["core"], modality: "isolation" },
+  { start: "Pilates Hundred", movementPattern: "core", primaryMuscles: ["core"], modality: "isolation" },
+];
+
+const catalogSectionStarts = CATALOG_SECTIONS.map((section) => EXERCISE_CATALOG_NAMES.indexOf(section.start));
+
+function inferExerciseDefinition(name: string, catalogIndex: number): ExerciseDefinition {
+  const lower = name.toLowerCase();
+  let section = CATALOG_SECTIONS[0];
+  catalogSectionStarts.forEach((start, index) => { if (catalogIndex >= start) section = CATALOG_SECTIONS[index]; });
+  const movementPattern = inferMovementPattern(lower, section.movementPattern);
+  const modality = inferModality(lower, section.modality);
+  const difficulty = inferDifficulty(lower);
+  const equipment = inferEquipment(lower);
+  return defineExercise(CATALOG_ID_OVERRIDES[name] ?? slugifyExerciseName(name), name, movementPattern, section.primaryMuscles, equipment, difficulty, modality, {
+    unilateral: /single|one-arm|one-leg|alternating|meadows|archer|suitcase|curtsy|split squat|lunge|step-up/.test(lower),
+  });
+}
+
+function inferMovementPattern(name: string, fallback: MovementPattern): MovementPattern {
+  if (/pulldown|pull-up|chin-up|muscle-up|pullover|front lever/.test(name)) return "vertical-pull";
+  if (/row|shrug|pull-apart|retraction|reverse fly|rear delt|face pull|high pull|clean pull/.test(name)) return "horizontal-pull";
+  if (/shoulder press|overhead press|arnold|landmine press|bradford|push press|jerk|handstand|pike push-up|z press/.test(name)) return "vertical-push";
+  if (/lateral raise|front raise|rear delt|pec deck|shoulder|upright row|y raise|t raise/.test(name)) return "shoulder-isolation";
+  if (/curl|gripper|wrist|pinch|hang|static hold/.test(name)) return fallback === "knee-flexion" ? "knee-flexion" : "elbow-flexion";
+  if (/pushdown|triceps|skull|close-grip|jm press|kickback|diamond|tiger bend/.test(name)) return "elbow-extension";
+  if (/lunge|split squat|step-up|pistol|shrimp|curtsy/.test(name)) return "lunge";
+  if (/leg curl|nordic|glute-ham|razor curl/.test(name)) return "knee-flexion";
+  if (/deadlift|romanian|good morning|hip hinge|back extension|hyperextension|hip thrust|glute bridge|pull-through|kettlebell swing/.test(name)) return "hinge";
+  if (/squat|leg press|leg extension|wall sit/.test(name)) return "squat";
+  if (/calf|plantar|tibialis|pogo/.test(name)) return "calf-raise";
+  if (/crunch|plank|dead bug|bird dog|knee raise|leg raise|rollout|twist|v-up|hollow|woodchopper|rotation|dragon flag|toes-to-bar|l-sit|v-sit|human flag|copenhagen/.test(name)) return "core";
+  return fallback;
+}
+
+function inferModality(name: string, fallback: "compound" | "isolation"): "compound" | "isolation" {
+  if (/fly|raise|curl|pushdown|extension|kickback|abduction|clamshell|frog pump|calf|plantar|tibialis|crunch|plank|dead bug|bird dog|heel touch|knee tuck|pallof|hollow|shrug|pull-apart|retraction|wrist|gripper|pinch|hang|static hold/.test(name)) return "isolation";
+  return fallback;
+}
+
+function inferEquipment(name: string): Equipment[] {
+  if (/smith/.test(name)) return ["smith-machine"];
+  if (/cable|pulldown|pushdown|woodchopper|pallof/.test(name)) return ["cable"];
+  if (/resistance band|banded|band pull/.test(name)) return ["resistance-band"];
+  if (/kettlebell|turkish/.test(name)) return ["kettlebell"];
+  if (/dumbbell/.test(name)) return ["dumbbell"];
+  if (/barbell|ez-bar|spoto|larsen|bench press|pendlay|good morning|zercher|jefferson|rack pull|clean|snatch|landmine/.test(name)) return ["barbell"];
+  if (/machine|pec deck|leg press|hack squat|assisted|treadmill|cycling|elliptical|stair climber|rowing|sled|battle rope/.test(name)) return ["machine"];
+  if (/plate|medicine ball|sandbag/.test(name)) return ["dumbbell"];
+  return ["bodyweight"];
+}
+
+function inferDifficulty(name: string): ExperienceLevel {
+  if (/wall |knee |assisted|supported|bodyweight|light |drill|regression|treadmill|stationary|elliptical/.test(name)) return "beginner";
+  if (/one-arm|single-arm push-up|handstand|dragon|human flag|front lever|muscle-up|heavy |deficit|snatch|clean and jerk|pistol|nordic|depth jump|weighted vest/.test(name)) return "advanced";
+  return "intermediate";
+}
+
+function slugifyExerciseName(name: string): string {
+  return name.toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+export const EXERCISE_LIBRARY: ExerciseDefinition[] = EXERCISE_CATALOG_NAMES.map((name, index) => {
+  const curated = curatedById.get(LEGACY_ID_BY_CATALOG_NAME[name] ?? "") ?? curatedByName.get(name.toLowerCase());
+  return curated ? { ...curated, name } : inferExerciseDefinition(name, index);
+});
+
+const exerciseById = new Map([...CURATED_EXERCISE_LIBRARY, ...EXERCISE_LIBRARY].map((exercise) => [exercise.id, exercise]));

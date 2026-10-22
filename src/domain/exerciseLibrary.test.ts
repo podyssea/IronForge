@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { EXERCISE_CATALOG_NAMES } from "./exerciseCatalog";
 import { EXERCISE_LIBRARY, filterExerciseLibrary, getExerciseDefinition, getExerciseSubstitutions } from "./exerciseLibrary";
 import { initialFourDaySplit } from "./training";
 
 describe("exercise library", () => {
   it("contains a broad catalog with unique IDs", () => {
-    expect(EXERCISE_LIBRARY.length).toBeGreaterThanOrEqual(99);
+    expect(EXERCISE_LIBRARY.map((exercise) => exercise.name)).toEqual(EXERCISE_CATALOG_NAMES);
+    expect(new Set(EXERCISE_LIBRARY.map((exercise) => exercise.name)).size).toBe(EXERCISE_LIBRARY.length);
     expect(new Set(EXERCISE_LIBRARY.map((exercise) => exercise.id)).size).toBe(EXERCISE_LIBRARY.length);
   });
 

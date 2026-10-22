@@ -511,7 +511,8 @@ export function weightUnitLabel(unit: WeightUnit): string {
 }
 
 export function updateExercisePrescription(exercise: Exercise, changes: { name?: string; targetSets?: number; repRange?: [number, number]; loadIncrement?: number; restSeconds?: number }): Exercise {
-  const targetSets = Math.max(2, Math.min(8, changes.targetSets ?? exercise.targetSets));
+  if (isThreeByThreeExercise(exercise)) return normalizeExercisePrescription(exercise);
+  const targetSets = Math.max(2, Math.min(5, changes.targetSets ?? exercise.targetSets));
   const repRange = changes.repRange ?? exercise.repRange;
   const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;
   const sets = Array.from({ length: targetSets }, (_, index) => exercise.sets[index] ?? {
@@ -529,7 +530,8 @@ export function updateExercisePrescription(exercise: Exercise, changes: { name?:
 }
 
 export function resizeActiveExerciseSets(exercise: Exercise, targetSets: number): Exercise {
-  const nextTarget = Math.max(2, Math.min(8, targetSets));
+  if (isThreeByThreeExercise(exercise)) return exercise;
+  const nextTarget = Math.max(2, Math.min(5, targetSets));
   const source = exercise.sets[exercise.sets.length - 1] ?? { weight: exercise.lastWeight, reps: exercise.repRange[0], completed: false };
   const sets = Array.from({ length: nextTarget }, (_, index) => exercise.sets[index] ?? { ...source, completed: false });
   return { ...exercise, targetSets: nextTarget, sets };
@@ -545,7 +547,7 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
   const maximumReps = modality === "compound" ? (exercise.programmedWorkingSets ? 12 : 10) : modality === "isolation" ? 20 : 12;
   const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;
   const minimumReps = Math.min(maximumReps, Math.max(minimumAllowedReps, exercise.repRange[0]));
-  const targetSets = exercise.targetSets;
+  const targetSets = Math.max(2, Math.min(5, exercise.targetSets));
   const repRange: [number, number] = [minimumReps, Math.min(maximumReps, Math.max(minimumReps, exercise.repRange[1]))];
   return {
     ...exercise,

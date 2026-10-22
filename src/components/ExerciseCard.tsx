@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { ReactNode, useMemo } from "react";
 import { Alert, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from "react-native";
 import { displayExerciseWeight, displayWeight, exerciseWeightLabel, Exercise, isThreeByThreeExercise, isWorkingSet, LoadingType, progression, setValidationError, SetLog, storedExerciseWeight, storedWeight, WeightUnit, weightUnitLabel, workingSetStartIndex } from "../domain/training";
 import { getExerciseDefinition } from "../domain/exerciseLibrary";
@@ -10,6 +10,7 @@ type ExerciseCardProps = {
   editable: boolean;
   onChange: (id: string, set: number, changes: Partial<SetLog>) => void;
   onReplace?: (id: string) => void;
+  replacementDropdown?: ReactNode;
   onRemoveExercise?: (id: string) => void;
   onLoadingType?: (id: string, loadingType: LoadingType) => void;
   weightUnit: WeightUnit;
@@ -31,7 +32,7 @@ type ExerciseCardProps = {
   onToggleSuperset?: (id: string) => void;
 };
 
-export function ExerciseCard({ exercise, number, editable, onChange, onReplace, onRemoveExercise, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted, onMove, canMoveUp, canMoveDown, onLayout, onWorkingLoadChange, supersetLabel, supersetPartnerName, canSupersetWithNext, onToggleSuperset }: ExerciseCardProps) {
+export function ExerciseCard({ exercise, number, editable, onChange, onReplace, replacementDropdown, onRemoveExercise, onLoadingType, weightUnit, onAddSet, onRemoveSet, onSetCompleted, expanded, highlighted, onToggleExpanded, onExerciseCompleted, onMove, canMoveUp, canMoveDown, onLayout, onWorkingLoadChange, supersetLabel, supersetPartnerName, canSupersetWithNext, onToggleSuperset }: ExerciseCardProps) {
   const isComplete = exercise.sets.every((set) => set.completed);
   const toggleExercise = () => {
     if (!isComplete) {
@@ -51,7 +52,6 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
   const warmupCount = workingSetStartIndex(exercise);
   const workingSetCount = exercise.sets.length - warmupCount;
   const definition = getExerciseDefinition(exercise.id);
-  const isIsolation = definition?.modality === "isolation";
   const isThreeByThree = isThreeByThreeExercise(exercise);
   const maximumSelectableReps = definition?.modality === "isolation" ? 20 : definition?.modality === "compound" ? (exercise.programmedWorkingSets ? 12 : 10) : 12;
   const weightOptions = useMemo(() => buildWeightOptions(exercise, weightUnit), [exercise.sets, exercise.lastWeight, exercise.loadIncrement, exercise.loadingType, weightUnit]);
@@ -70,8 +70,9 @@ export function ExerciseCard({ exercise, number, editable, onChange, onReplace, 
     {onMove && <View style={styles.moveActions}><Pressable disabled={!canMoveUp} onPress={() => onMove(exercise.id, -1)} style={[styles.moveButton, !canMoveUp && styles.moveDisabled]}><Text style={styles.moveText}>↑ MOVE UP</Text></Pressable><Pressable disabled={!canMoveDown} onPress={() => onMove(exercise.id, 1)} style={[styles.moveButton, !canMoveDown && styles.moveDisabled]}><Text style={styles.moveText}>↓ MOVE DOWN</Text></Pressable></View>}
     {onToggleSuperset && (exercise.supersetId || canSupersetWithNext) && <Pressable accessibilityRole="button" accessibilityLabel={exercise.supersetId ? `Unlink ${exercise.name} from ${supersetPartnerName}` : `Superset ${exercise.name} with the next exercise`} onPress={() => onToggleSuperset(exercise.id)} style={[styles.supersetButton, exercise.supersetId && styles.supersetButtonActive]}><Text style={[styles.supersetButtonText, exercise.supersetId && styles.supersetButtonTextActive]}>{exercise.supersetId ? "UNLINK SUPERSET" : "⚡ SUPERSET WITH NEXT EXERCISE"}</Text></Pressable>}
     {onLoadingType && !isThreeByThree && !exercise.loadingType && <View style={styles.loadingType}><Text style={styles.loadingLabel}>SELECT MACHINE LOADING · SAVED PERMANENTLY</Text><View style={styles.loadingChoices}>{(["pin-loaded", "plate-loaded"] as LoadingType[]).map((item) => <Pressable key={item} onPress={() => onLoadingType(exercise.id, item)} style={styles.loadingChoice}><Text style={styles.loadingChoiceText}>{item === "pin-loaded" ? "PIN LOADED" : "PLATE LOADED · PER SIDE"}</Text></Pressable>)}</View></View>}
-    {!isIsolation && !isThreeByThree && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 8 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
-    {onReplace && <Pressable onPress={() => onReplace(exercise.id)} style={styles.replace}><Text style={styles.replaceText}>REPLACE WITH ANY EXERCISE</Text></Pressable>}
+    {!isThreeByThree && (onAddSet || onRemoveSet) && <View style={styles.setActions}>{onRemoveSet && exercise.targetSets > 2 && <Pressable onPress={() => onRemoveSet(exercise.id)} style={styles.removeSet}><Text style={styles.removeSetText}>－ REMOVE SET</Text></Pressable>}{onAddSet && exercise.targetSets < 5 && <Pressable onPress={() => onAddSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>＋ ADD SET</Text></Pressable>}</View>}
+    {onReplace && <Pressable accessibilityRole="button" accessibilityState={{ expanded: Boolean(replacementDropdown) }} onPress={() => onReplace(exercise.id)} style={[styles.replace, replacementDropdown ? styles.replaceOpen : undefined]}><Text style={styles.replaceText}>{replacementDropdown ? "CHANGE EXERCISE ▲" : "CHANGE EXERCISE ▼"}</Text></Pressable>}
+    {replacementDropdown}
     {onRemoveExercise && <Pressable onPress={() => onRemoveExercise(exercise.id)} style={styles.removeExercise}><Text style={styles.removeExerciseText}>REMOVE EXERCISE FROM WORKOUT</Text></Pressable>}
     {exercise.selectionReason && <Text style={styles.reason}>COACH: {exercise.selectionReason}</Text>}
     <Text style={styles.tip}>{progression(exercise, weightUnit)}</Text></>}
@@ -127,7 +128,7 @@ const styles = StyleSheet.create({
   exerciseToggleTextDone: { color: "#15200e" }, tip: { color: "#858d83", fontSize: 10, marginTop: 11, lineHeight: 14 },
   moveActions: { flexDirection: "row", gap: 7, marginTop: 11 }, moveButton: { flex: 1, height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#687166", justifyContent: "center", alignItems: "center" }, moveDisabled: { opacity: .25 }, moveText: { color: "#c2c9bf", fontSize: 8, fontWeight: "900", letterSpacing: .6 },
   supersetButton: { height: 36, borderRadius: 6, borderWidth: 1, borderColor: "#809b25", justifyContent: "center", alignItems: "center", marginTop: 8 }, supersetButtonActive: { backgroundColor: "#29351c" }, supersetButtonText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .6 }, supersetButtonTextActive: { color: "#b8c78a" },
-  replace: { height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#566052", justifyContent: "center", alignItems: "center", marginTop: 11 }, replaceText: { color: "#c2c9bf", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
+  replace: { height: 38, borderRadius: 6, borderWidth: 1, borderColor: "#566052", justifyContent: "center", alignItems: "center", marginTop: 11 }, replaceOpen: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderColor: "#d8ff38" }, replaceText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
   removeExercise: { height: 34, borderRadius: 6, borderWidth: 1, borderColor: "#74463f", justifyContent: "center", alignItems: "center", marginTop: 8 }, removeExerciseText: { color: "#d99488", fontSize: 9, fontWeight: "900", letterSpacing: .7 },
   setActions: { flexDirection: "row", gap: 7, marginTop: 11 }, addSet: { flex: 1, height: 36, borderRadius: 6, borderWidth: 1, borderColor: "#d8ff38", justifyContent: "center", alignItems: "center" }, addSetText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .7 }, removeSet: { flex: 1, height: 36, borderRadius: 6, borderWidth: 1, borderColor: "#687166", justifyContent: "center", alignItems: "center" }, removeSetText: { color: "#b8c0b5", fontSize: 9, fontWeight: "900", letterSpacing: .6 },
   reason: { color: "#b9c99b", fontSize: 10, lineHeight: 15, marginTop: 11 },

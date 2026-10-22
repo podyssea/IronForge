@@ -397,6 +397,25 @@ describe("units and workout editing", () => {
     expect(minimum.sets).toHaveLength(2);
   });
 
+  it("limits adjustable exercises to two through five sets", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+
+    expect(updateExercisePrescription(exercise, { targetSets: 8 }).sets).toHaveLength(5);
+    expect(resizeActiveExerciseSets(exercise, 8).sets).toHaveLength(5);
+    expect(resizeActiveExerciseSets(exercise, 1).sets).toHaveLength(2);
+  });
+
+  it("keeps back squat and conventional deadlift on their existing 3x3 calculator", () => {
+    const source = initialFourDaySplit()[0].exercises[0];
+    const squat = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "back-squat", name: "Barbell Back Squat" }] }).exercises[0];
+    const deadlift = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "conventional-deadlift", name: "Conventional Deadlift" }] }).exercises[0];
+
+    expect(resizeActiveExerciseSets(squat, 5)).toBe(squat);
+    expect(resizeActiveExerciseSets(deadlift, 2)).toBe(deadlift);
+    expect(squat.sets).toHaveLength(6);
+    expect(deadlift.sets).toHaveLength(6);
+  });
+
   it("creates and reorders custom exercises", () => {
     const workout = initialFourDaySplit()[0];
     const custom = createCustomExercise("Cable Y Raise", new Date("2026-01-01T00:00:00.000Z"));
