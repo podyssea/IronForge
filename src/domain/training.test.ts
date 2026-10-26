@@ -104,28 +104,26 @@ describe("set validation and session calculations", () => {
 });
 
 describe("active session lifecycle", () => {
-  it("builds the squat and conventional deadlift into a calculated 3x3 ramp", () => {
+  it("builds load-appropriate warm-up ramps for back squat and conventional deadlift", () => {
     const source = initialFourDaySplit()[0].exercises[0];
     const workout = { id: "strength", title: "Strength", focus: "3x3", exercises: [
       { ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 3 },
       { ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 3 },
     ] };
     const session = startActiveSession(workout);
-    expect(session.exercises[0]).toMatchObject({ targetSets: 6, repRange: [3, 3] });
-    expect(session.exercises[0].sets.map((set) => [set.weight, set.reps])).toEqual([[40, 5], [60, 5], [80, 3], [100, 3], [100, 3], [100, 3]]);
+    expect(session.exercises[0]).toMatchObject({ targetSets: 7, workingSetCount: 4, repRange: [3, 8] });
+    expect(session.exercises[0].sets.map((set) => [set.weight, set.reps])).toEqual([[20, 5], [55, 3], [80, 3], [100, 6], [100, 6], [100, 6], [100, 6]]);
     expect(displayExerciseWeight(100, session.exercises[0], "kg")).toBe(40);
     expect(storedExerciseWeight(40, session.exercises[0], "kg")).toBe(100);
-    expect(session.exercises[1].sets.map((set) => set.weight)).toEqual([60, 90, 120, 150, 150, 150]);
-    expect(workingSets(session.exercises[0])).toHaveLength(3);
+    expect(session.exercises[1].sets.map((set) => set.weight)).toEqual([20, 60, 90, 120, 150, 150, 150, 150]);
+    expect(workingSets(session.exercises[0])).toHaveLength(4);
   });
 
-  it("updates a 3x3 load only after all three working sets are conquered", () => {
+  it("updates the conquered target after one completed triple", () => {
     const source = initialFourDaySplit()[0].exercises[0];
     const workout = { id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 3 }] };
     const session = startActiveSession(workout);
-    session.exercises[0].sets.slice(-3).forEach((set, index) => Object.assign(set, { weight: 102.5, reps: 3, completed: index < 2 }));
-    expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(100);
-    session.exercises[0].sets.at(-1)!.completed = true;
+    session.exercises[0].sets.slice(-4).forEach((set, index) => Object.assign(set, { weight: 102.5, reps: 3, completed: index === 0 }));
     expect(applySessionPerformance([workout], session)[0].exercises[0].lastWeight).toBe(102.5);
   });
 
@@ -137,20 +135,38 @@ describe("active session lifecycle", () => {
     squat.sets[2].weight = 65;
 
     const updated = applyWorkingLoadPreservingWarmups(squat, 110);
-    expect(updated.sets.map((set) => set.weight)).toEqual([25, 45, 65, 110, 110, 110]);
-    expect(updated.sets.slice(-3).every((set) => set.reps === 3)).toBe(true);
+    expect(updated.sets.map((set) => set.weight)).toEqual([25, 45, 65, 110, 110, 110, 110]);
+    expect(updated.sets.slice(-4).every((set) => set.weight === 110)).toBe(true);
   });
 
-  it("keeps conventional deadlift working sets and conquered weight synchronized", () => {
+  it.each([
+    ["back-squat", "Barbell Back Squat", 100, 130, [20, 52.5, 77.5, 105]],
+    ["conventional-deadlift", "Conventional Deadlift", 150, 160, [20, 65, 95, 127.5]],
+  ])("keeps %s working sets, target, and calculated warm-ups synchronized", (id, name, startingWeight, changedWeight, expectedWarmups) => {
     const source = initialFourDaySplit()[0].exercises[0];
-    const deadlift = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 3 }] }).exercises[0];
+    const exercise = startActiveSession({ id: "strength", title: "Strength", focus: "triples", exercises: [{ ...source, id, name, lastWeight: startingWeight, lastReps: 3 }] }).exercises[0];
 
-    const changedSet = updateExerciseSet(deadlift, 4, { weight: 160 });
-    expect(changedSet.lastWeight).toBe(160);
-    expect(changedSet.sets.slice(-3).map((set) => set.weight)).toEqual([160, 160, 160]);
+    const changedSet = updateExerciseSet(exercise, exercise.sets.length - 1, { weight: changedWeight });
+    expect(changedSet.lastWeight).toBe(changedWeight);
+    expect(changedSet.sets.slice(0, -4).map((set) => set.weight)).toEqual(expectedWarmups);
+    expect(changedSet.sets.slice(-4).map((set) => set.weight)).toEqual([changedWeight, changedWeight, changedWeight, changedWeight]);
 
-    const changedTarget = applyWarmupLoads({ ...changedSet, lastWeight: 170 }, 170);
-    expect(changedTarget.sets.slice(-3).map((set) => set.weight)).toEqual([170, 170, 170]);
+    const changedTarget = applyWarmupLoads({ ...changedSet, lastWeight: changedWeight + 10 }, changedWeight + 10);
+    expect(changedTarget.sets.slice(-4).map((set) => set.weight)).toEqual(Array(4).fill(changedWeight + 10));
+  });
+
+  it("adds calculated warm-ups without replacing programmed working sets", () => {
+    const source = initialFourDaySplit()[0].exercises[0];
+    const workout = { id: "strength", title: "Strength", focus: "triples", exercises: [
+      { ...source, id: "back-squat", lastWeight: 100, targetSets: 4, programmedWorkingSets: true, repRange: [3, 5] as [number, number], sets: Array.from({ length: 4 }, () => ({ weight: 100, reps: 3, completed: false })) },
+      { ...source, id: "conventional-deadlift", lastWeight: 150, targetSets: 3, programmedWorkingSets: true, repRange: [3, 5] as [number, number], sets: Array.from({ length: 3 }, () => ({ weight: 150, reps: 3, completed: false })) },
+    ] };
+
+    const session = startActiveSession(workout);
+    expect(session.exercises[0].sets).toHaveLength(7);
+    expect(workingSets(session.exercises[0])).toHaveLength(4);
+    expect(session.exercises[1].sets).toHaveLength(7);
+    expect(workingSets(session.exercises[1])).toHaveLength(3);
   });
 
   it("resizes a live exercise without clearing logged sets", () => {
@@ -405,15 +421,15 @@ describe("units and workout editing", () => {
     expect(resizeActiveExerciseSets(exercise, 1).sets).toHaveLength(2);
   });
 
-  it("keeps back squat and conventional deadlift on their existing 3x3 calculator", () => {
+  it("keeps back squat and conventional deadlift on their weight calculator", () => {
     const source = initialFourDaySplit()[0].exercises[0];
     const squat = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "back-squat", name: "Barbell Back Squat" }] }).exercises[0];
     const deadlift = startActiveSession({ id: "strength", title: "Strength", focus: "3x3", exercises: [{ ...source, id: "conventional-deadlift", name: "Conventional Deadlift" }] }).exercises[0];
 
     expect(resizeActiveExerciseSets(squat, 5)).toBe(squat);
     expect(resizeActiveExerciseSets(deadlift, 2)).toBe(deadlift);
-    expect(squat.sets).toHaveLength(6);
-    expect(deadlift.sets).toHaveLength(6);
+    expect(squat.sets).toHaveLength(5);
+    expect(deadlift.sets).toHaveLength(5);
   });
 
   it("creates and reorders custom exercises", () => {

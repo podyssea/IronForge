@@ -143,11 +143,7 @@ export default function App() {
         ...current,
         exercises: current.exercises.map((exercise) => {
           if (exercise.id !== exerciseId) return exercise;
-          const recalculated = applyWarmupLoads({ ...exercise, lastWeight: weight, lastReps: 3 }, weight);
-          return {
-            ...recalculated,
-            sets: recalculated.sets.map((set, index) => exercise.sets[index]?.completed ? exercise.sets[index] : set),
-          };
+          return applyWarmupLoads({ ...exercise, lastWeight: weight, lastReps: 3 }, weight);
         }),
       });
       return;

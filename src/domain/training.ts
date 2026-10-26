@@ -25,6 +25,7 @@ export type Exercise = {
   restSecondsMax?: number;
   rirRange?: [number, number];
   programmedWorkingSets?: boolean;
+  workingSetCount?: number;
   supersetId?: string;
 };
 
@@ -36,7 +37,7 @@ type SeedExercise = Omit<Exercise, "sets">;
 const THREE_BY_THREE_EXERCISE_IDS = new Set(["back-squat", "conventional-deadlift"]);
 
 export function isThreeByThreeExercise(exercise: Pick<Exercise, "id">): boolean {
-  return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id) && !("programmedWorkingSets" in exercise && exercise.programmedWorkingSets);
+  return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id);
 }
 
 function exercise(id: string, name: string, targetSets: number, repRange: [number, number], weight: number): SeedExercise {
@@ -163,8 +164,9 @@ export function applyDeloadToSession(session: ActiveSession): ActiveSession {
 }
 
 export function workingSetStartIndex(exercise: Exercise): number {
+  if (isThreeByThreeExercise(exercise)) return Math.max(0, exercise.sets.length - calculatorWorkingSetCount(exercise));
   if (exercise.programmedWorkingSets) return 0;
-  return Math.max(0, exercise.sets.length - (isThreeByThreeExercise(exercise) ? 3 : 2));
+  return Math.max(0, exercise.sets.length - 2);
 }
 
 export function isWorkingSet(exercise: Exercise, setIndex: number): boolean {
@@ -182,15 +184,30 @@ export function bestCompletedWorkingSet(exercise: Exercise): SetLog | undefined 
 }
 
 export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.lastWeight): Exercise {
+  if (isThreeByThreeExercise(exercise)) {
+    const workingCount = calculatorWorkingSetCount(exercise);
+    const workingStart = workingSetStartIndex(exercise);
+    const existingWorkingSets = exercise.sets.slice(workingStart);
+    const warmups = calculatedBarbellWarmups(workingWeight);
+    const sets = [
+      ...warmups.map((set, index) => ({ ...set, completed: exercise.sets[index]?.completed ?? false })),
+      ...Array.from({ length: workingCount }, (_, index) => ({
+        ...(existingWorkingSets[index] ?? { reps: Math.max(3, exercise.repRange[0]), completed: false }),
+        weight: workingWeight,
+      })),
+    ];
+    return {
+      ...exercise,
+      targetSets: sets.length,
+      workingSetCount: workingCount,
+      lastReps: 3,
+      sets,
+    };
+  }
   const warmupCount = workingSetStartIndex(exercise);
   return {
     ...exercise,
     sets: exercise.sets.map((set, index) => {
-      if (isThreeByThreeExercise(exercise)) {
-        const scales = [0.4, 0.6, 0.8, 1, 1, 1];
-        const reps = [5, 5, 3, 3, 3, 3];
-        return { ...set, weight: roundThreeByThreeLoad(workingWeight * (scales[index] ?? 1)), reps: reps[index] ?? 3, completed: false };
-      }
       const scale = warmupCount === 2 && index === 0 ? 0.5 : index < warmupCount ? 0.7 : 1;
       return { ...set, weight: roundExerciseLoad(workingWeight * scale, exercise), completed: false };
     }),
@@ -214,20 +231,34 @@ export function applyWorkingLoadPreservingWarmups(exercise: Exercise, workingWei
 
 export function updateExerciseSet(exercise: Exercise, setIndex: number, changes: Partial<SetLog>): Exercise {
   const sets = exercise.sets.map((set, index) => index === setIndex ? { ...set, ...changes } : set);
-  if (exercise.id !== "conventional-deadlift" || changes.weight === undefined || !isWorkingSet(exercise, setIndex)) {
+  if (!isThreeByThreeExercise(exercise) || changes.weight === undefined || !isWorkingSet(exercise, setIndex)) {
     return { ...exercise, sets };
   }
 
   const workingWeight = changes.weight;
-  const recalculated = applyWarmupLoads({ ...exercise, lastWeight: workingWeight, lastReps: 3, sets }, workingWeight);
-  return {
-    ...recalculated,
-    sets: recalculated.sets.map((set, index) => sets[index]?.completed ? sets[index] : set),
-  };
+  return applyWarmupLoads({ ...exercise, lastWeight: workingWeight, lastReps: 3, sets }, workingWeight);
 }
 
 function roundThreeByThreeLoad(weight: number): number {
   return Math.max(20, Math.round(weight / 2.5) * 2.5);
+}
+
+function calculatorWorkingSetCount(exercise: Exercise): number {
+  if (exercise.workingSetCount !== undefined) return Math.max(1, Math.min(5, exercise.workingSetCount));
+  const legacyCalculator = !exercise.programmedWorkingSets && exercise.targetSets === 6 && exercise.sets.length === 6 && exercise.repRange[0] === 3;
+  return legacyCalculator ? 3 : Math.max(1, Math.min(5, exercise.targetSets));
+}
+
+function calculatedBarbellWarmups(workingWeight: number): SetLog[] {
+  if (workingWeight <= 20) return [];
+  const scales = workingWeight <= 40 ? [20 / workingWeight]
+    : workingWeight <= 80 ? [20 / workingWeight, 0.7]
+      : workingWeight <= 120 ? [20 / workingWeight, 0.55, 0.8]
+        : [20 / workingWeight, 0.4, 0.6, 0.8];
+  const weights = scales
+    .map((scale) => roundThreeByThreeLoad(workingWeight * scale))
+    .filter((weight, index, values) => weight < workingWeight && values.indexOf(weight) === index);
+  return weights.map((weight, index) => ({ weight, reps: index === 0 ? 5 : 3, completed: false }));
 }
 
 export function exercisesMissingLoadingType(workout: Workout): Exercise[] {
@@ -251,6 +282,16 @@ export function startRecoveryAwareSession(workout: Workout, checkIn: ReadinessCh
     focus: adjustment.level === "ready" ? session.focus : `${session.focus} · ${adjustment.level === "low" ? "Recovery session" : "Adjusted effort"}`,
     readiness: { ...checkIn, score: adjustment.score, level: adjustment.level },
     exercises: session.exercises.map((exercise) => {
+      if (isThreeByThreeExercise(exercise)) {
+        const workingStart = workingSetStartIndex(exercise);
+        const workingSetCount = Math.max(1, calculatorWorkingSetCount(exercise) - adjustment.setReduction);
+        return applyWarmupLoads({
+          ...exercise,
+          targetSets: workingSetCount,
+          workingSetCount,
+          sets: exercise.sets.slice(workingStart, workingStart + workingSetCount),
+        }, roundExerciseLoad(exercise.lastWeight * adjustment.loadScale, exercise));
+      }
       const targetSets = Math.max(1, exercise.targetSets - adjustment.setReduction);
       return applyWarmupLoads({
         ...exercise,
@@ -318,6 +359,7 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
         lastWeight: workingWeight,
         lastReps,
         targetSets: sets.length,
+        workingSetCount: recordedExercise.workingSetCount ?? latest.workingSetCount,
         sets,
       });
     }),
@@ -353,6 +395,7 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
         ...exercise,
         supersetId: performed.supersetId,
         targetSets: performed.targetSets,
+        workingSetCount: performed.workingSetCount,
         sets: Array.from({ length: performed.targetSets }, (_, index) => ({
           ...(exercise.sets[index] ?? exercise.sets.at(-1) ?? performed.sets[index]),
           completed: false,
@@ -375,10 +418,9 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
         const expectedDeload = applyWarmupLoads(exercise, roundExerciseLoad(exercise.lastWeight * 0.75, exercise));
         return performed.targetSets === exercise.targetSets && performed.sets.slice(0, workingSetStartIndex(performed)).every((set, index) => set.weight === expectedDeload.sets[index]?.weight) ? exercise : preservePerformedWarmups(exercise.lastWeight);
       }
-      if (isThreeByThreeExercise(performed) && workingSets(performed).filter((set, index) => set.completed && !setValidationError(set, performed, workingSetStartIndex(performed) + index) && set.reps >= 3).length < 3) return preservePerformedWarmups(exercise.lastWeight);
       const best = bestCompletedWorkingSet(performed);
       if (!best) return preservePerformedWarmups(exercise.lastWeight);
-      if (isThreeByThreeExercise(performed)) return preservePerformedWarmups(best.weight, 3);
+      if (isThreeByThreeExercise(performed)) return best.reps >= 3 ? preservePerformedWarmups(best.weight, 3) : preservePerformedWarmups(exercise.lastWeight);
       return {
         ...resized,
         lastWeight: best.weight,
@@ -454,7 +496,7 @@ export function removeWorkoutExercise(workouts: Workout[], workoutId: string, ex
 export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string {
   const completed = workingSets(exercise).filter((set) => set.completed);
   const best = bestCompletedWorkingSet(exercise);
-  if (isThreeByThreeExercise(exercise)) return completed.length === 3 && completed.every((set) => set.reps >= 3) && best ? `3×3 conquered at ${displayWeight(best.weight, unit)} ${weightUnitLabel(unit)} total · ${displayExerciseWeight(best.weight, exercise, unit)} ${exerciseWeightLabel(exercise, unit)}. Increase conservatively next time.` : "Complete all 3 working sets of 3 to conquer this load";
+  if (isThreeByThreeExercise(exercise)) return best && best.reps >= 3 ? `Triple conquered at ${displayWeight(best.weight, unit)} ${weightUnitLabel(unit)} total · ${displayExerciseWeight(best.weight, exercise, unit)} ${exerciseWeightLabel(exercise, unit)}. Increase conservatively next time.` : "Complete at least one working set of 3 to conquer this target";
   const requiredSets = exercise.programmedWorkingSets ? exercise.targetSets : Math.min(2, exercise.sets.length);
   if (completed.length === requiredSets && completed.every((set) => set.reps >= exercise.repRange[1]) && best) return `Ready to increase: try ${displayExerciseWeight(best.weight + loadIncrement({ ...exercise, lastWeight: best.weight }), exercise, unit)} ${exerciseWeightLabel(exercise, unit)} next time`;
   return `Progress when all ${requiredSets} working sets reach ${exercise.repRange[1]} reps`;
@@ -540,9 +582,20 @@ export function resizeActiveExerciseSets(exercise: Exercise, targetSets: number)
 export function normalizeExercisePrescription(exercise: Exercise): Exercise {
   const modality = getExerciseDefinition(exercise.id)?.modality;
   if (isThreeByThreeExercise(exercise)) {
-    const sourceSets = Array.from({ length: 6 }, (_, index) => exercise.sets[index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: 3, completed: false });
-    const normalized = { ...exercise, targetSets: 6, repRange: [3, 3] as [number, number], lastReps: 3, sets: sourceSets.map((set, index) => ({ ...set, reps: [5, 5, 3, 3, 3, 3][index] ?? 3 })) };
-    return exercise.sets.length === 6 ? normalized : applyWarmupLoads(normalized, exercise.lastWeight);
+    const workingCount = calculatorWorkingSetCount(exercise);
+    const workingStart = workingSetStartIndex(exercise);
+    const workingSets = Array.from({ length: workingCount }, (_, index) => {
+      const source = exercise.sets[workingStart + index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: 3, completed: false };
+      return { ...source, reps: Math.max(3, source.reps) };
+    });
+    return applyWarmupLoads({
+      ...exercise,
+      targetSets: workingCount,
+      workingSetCount: workingCount,
+      repRange: [3, Math.max(3, exercise.repRange[1])],
+      lastReps: 3,
+      sets: workingSets,
+    }, exercise.lastWeight);
   }
   const maximumReps = modality === "compound" ? (exercise.programmedWorkingSets ? 12 : 10) : modality === "isolation" ? 20 : 12;
   const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;

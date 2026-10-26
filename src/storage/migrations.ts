@@ -406,6 +406,7 @@ function isExercise(value: unknown): value is Exercise {
     && (value.restSecondsMax === undefined || (Number.isInteger(value.restSecondsMax) && (value.restSecondsMax as number) >= 15 && (value.restSecondsMax as number) <= 600))
     && (value.rirRange === undefined || (Array.isArray(value.rirRange) && value.rirRange.length === 2 && value.rirRange.every((item) => isFiniteNumber(item) && item >= 0 && item <= 10)))
     && (value.programmedWorkingSets === undefined || typeof value.programmedWorkingSets === "boolean")
+    && (value.workingSetCount === undefined || (Number.isInteger(value.workingSetCount) && (value.workingSetCount as number) >= 1 && (value.workingSetCount as number) <= 5))
     && (value.supersetId === undefined || typeof value.supersetId === "string")
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set)
