@@ -34,10 +34,17 @@ export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: 
 export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; estimatedDurationMinutes?: [number, number]; strengthPriority?: string; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
-const THREE_BY_THREE_EXERCISE_IDS = new Set(["back-squat", "conventional-deadlift"]);
+const THREE_BY_THREE_EXERCISE_IDS = new Set(["conventional-deadlift"]);
 
 export function isThreeByThreeExercise(exercise: Pick<Exercise, "id">): boolean {
   return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id);
+}
+
+export function canonicalExerciseName(exercise: Pick<Exercise, "id" | "name">): string {
+  const definition = getExerciseDefinition(exercise.id);
+  if (definition?.primaryMuscles.includes("triceps") || /\btriceps?\b/i.test(exercise.name)) return "Tricep Exercise";
+  if (definition?.primaryMuscles.includes("biceps") || /\bbiceps?\b/i.test(exercise.name)) return "Bicep Exercise";
+  return exercise.name;
 }
 
 function exercise(id: string, name: string, targetSets: number, repRange: [number, number], weight: number): SeedExercise {
@@ -102,7 +109,9 @@ export function generateFromStyle(days: number, existing: Workout[]): Workout[] 
 export function applyTrainingPhase(workouts: Workout[], phase: TrainingPhase): Workout[] {
   if (phase === "hypertrophy") return workouts.map((workout) => ({ ...workout, focus: "Hypertrophy · muscle-building volume" }));
   return workouts.map((workout) => ({ ...workout, focus: phase === "strength" ? "Strength · heavier, focused work" : "Deload · recover and rebuild", exercises: workout.exercises.map((exercise) => {
-    const targetSets = phase === "strength" ? Math.max(3, exercise.targetSets - (exercise.targetSets >= 4 ? 1 : 0)) : Math.max(1, Math.ceil(exercise.targetSets / 2));
+    const targetSets = phase === "strength"
+      ? Math.min(5, Math.max(3, exercise.targetSets - (exercise.targetSets >= 4 ? 1 : 0)))
+      : isThreeByThreeExercise(exercise) ? Math.max(1, Math.ceil(exercise.targetSets / 2)) : Math.max(2, Math.ceil(exercise.targetSets / 2));
     const repRange: [number, number] = phase === "strength" ? [Math.max(3, exercise.repRange[0] - 3), Math.max(5, exercise.repRange[1] - 3)] : [exercise.repRange[0], Math.max(exercise.repRange[0], exercise.repRange[1] - 2)];
     const scale = phase === "deload" ? 0.85 : 1;
     const sets = Array.from({ length: targetSets }, (_, index) => {
@@ -131,7 +140,11 @@ export function isSessionComplete(exercises: Exercise[]): boolean {
 export function startActiveSession(workout: Workout, now = new Date()): ActiveSession {
   const exercises = workout.exercises.map((exercise) => {
     const normalized = normalizeExercisePrescription(exercise);
-    return { ...normalized, sets: normalized.sets.map((set) => ({ ...set, completed: false })) };
+    const reset = { ...normalized, sets: normalized.sets.map((set) => ({ ...set, completed: false })) };
+    const warmupSets = reset.sets.slice(0, workingSetStartIndex(reset));
+    return isThreeByThreeExercise(reset) || warmupSets.every((set) => set.weight >= reset.lastWeight)
+      ? applyWarmupLoads(reset)
+      : reset;
   });
   return {
     id: String(now.getTime()),
@@ -165,7 +178,6 @@ export function applyDeloadToSession(session: ActiveSession): ActiveSession {
 
 export function workingSetStartIndex(exercise: Exercise): number {
   if (isThreeByThreeExercise(exercise)) return Math.max(0, exercise.sets.length - calculatorWorkingSetCount(exercise));
-  if (exercise.programmedWorkingSets) return 0;
   return Math.max(0, exercise.sets.length - 2);
 }
 
@@ -292,7 +304,7 @@ export function startRecoveryAwareSession(workout: Workout, checkIn: ReadinessCh
           sets: exercise.sets.slice(workingStart, workingStart + workingSetCount),
         }, roundExerciseLoad(exercise.lastWeight * adjustment.loadScale, exercise));
       }
-      const targetSets = Math.max(1, exercise.targetSets - adjustment.setReduction);
+      const targetSets = Math.max(2, Math.min(5, exercise.targetSets - adjustment.setReduction));
       return applyWarmupLoads({
         ...exercise,
         targetSets,
@@ -604,6 +616,7 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
   const repRange: [number, number] = [minimumReps, Math.min(maximumReps, Math.max(minimumReps, exercise.repRange[1]))];
   return {
     ...exercise,
+    name: canonicalExerciseName(exercise),
     targetSets,
     repRange,
     lastReps: Math.min(maximumReps, Math.max(minimumAllowedReps, exercise.lastReps)),

@@ -28,6 +28,9 @@ type WorkoutScreenProps = {
   onCancelReplacement: () => void;
   onRemoveExercise: (id: string) => void;
   onAddExercise: () => void;
+  addingExercise: boolean;
+  onChooseAddition: (exercise: ExerciseDefinition) => void;
+  onCancelAddition: () => void;
   onLoadingType: (id: string, loadingType: LoadingType) => void;
   onNotesChange: (notes: string) => void;
   recommendations: CoachingRecommendation[];
@@ -44,7 +47,7 @@ type WorkoutScreenProps = {
   onWorkingLoadChange: (id: string, weight: number) => void;
 };
 
-export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, canStart = true, onSetChange, onFinish, onCancel, onReplaceExercise, replacementExerciseId, preferredExerciseIds, onChooseReplacement, onCancelReplacement, onRemoveExercise, onAddExercise, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onToggleSuperset, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout, onWorkingLoadChange }: WorkoutScreenProps) {
+export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, canStart = true, onSetChange, onFinish, onCancel, onReplaceExercise, replacementExerciseId, preferredExerciseIds, onChooseReplacement, onCancelReplacement, onRemoveExercise, onAddExercise, addingExercise, onChooseAddition, onCancelAddition, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onToggleSuperset, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout, onWorkingLoadChange }: WorkoutScreenProps) {
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const [restNotificationId, setRestNotificationId] = useState<string | null>(null);
   const [restExerciseName, setRestExerciseName] = useState("Exercise");
@@ -136,6 +139,7 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     {!activeSession && !canStart && <Text style={styles.draftHint}>Edit this draft as needed, then activate the plan from the Program tab before starting it.</Text>}
     {displayedWorkout.exercises.map((exercise, number) => { const pairIndex = exercise.supersetId ? displayedWorkout.exercises.findIndex((item) => item.id !== exercise.id && item.supersetId === exercise.supersetId) : -1; const pair = pairIndex >= 0 ? displayedWorkout.exercises[pairIndex] : undefined; const groupNumber = exercise.supersetId ? supersetOrder.get(exercise.supersetId) : undefined; const member = pairIndex > number ? "1" : "2"; const blockStart = pairIndex >= 0 ? Math.min(number, pairIndex) : number; const blockEnd = pairIndex >= 0 ? Math.max(number, pairIndex) : number; const replacementDropdown = replacementExerciseId === exercise.id ? <InlineExercisePicker exerciseId={exercise.id} excludedIds={displayedWorkout.exercises.filter((item) => item.id !== exercise.id).map((item) => item.id)} preferredIds={preferredExerciseIds} onSelect={onChooseReplacement} onCancel={onCancelReplacement} /> : undefined; return <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} expanded={expandedExerciseIds.has(exercise.id)} highlighted={Boolean(activeSession) && highlightedExerciseId === exercise.id} onToggleExpanded={toggleExerciseExpanded} onExerciseCompleted={advanceFromExercise} onChange={onSetChange} onReplace={onReplaceExercise} replacementDropdown={replacementDropdown} onRemoveExercise={displayedWorkout.exercises.length > 1 ? onRemoveExercise : undefined} onLoadingType={onLoadingType} onAddSet={onAddSet} onRemoveSet={onRemoveSet} onMove={onMoveExercise} canMoveUp={blockStart > 0} canMoveDown={blockEnd < displayedWorkout.exercises.length - 1} weightUnit={weightUnit} onSetCompleted={startRest} onLayout={onExerciseLayout} onWorkingLoadChange={onWorkingLoadChange} supersetLabel={groupNumber ? `${groupNumber} · A${member}` : undefined} supersetPartnerName={pair?.name} canSupersetWithNext={number < displayedWorkout.exercises.length - 1} onToggleSuperset={onToggleSuperset} />; })}
     <Pressable onPress={onAddExercise} style={styles.addExercise}><Text style={styles.addExerciseText}>＋ ADD EXERCISE TO WORKOUT</Text></Pressable>
+    {addingExercise && <InlineExercisePicker mode="add" exerciseId="" excludedIds={displayedWorkout.exercises.map((exercise) => exercise.id)} preferredIds={preferredExerciseIds} onSelect={onChooseAddition} onCancel={onCancelAddition} />}
     {activeSession && <><Pressable style={styles.finish} onPress={onFinish}><Text style={styles.finishText}>FINISH WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable><Pressable style={styles.cancel} onPress={onCancel}><Text style={styles.cancelText}>CANCEL WORKOUT</Text></Pressable></>}
   </>;
 }

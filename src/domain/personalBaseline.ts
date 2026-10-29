@@ -1,4 +1,4 @@
-import { SessionRecord, Workout } from "./training";
+import { canonicalExerciseName, SessionRecord, Workout } from "./training";
 
 type BaselineExercise = {
   id: string;
@@ -174,7 +174,7 @@ export function strengthFocusedFourDaySplit(existing: Workout[] = [], records: S
       const lastReps = Math.max(prescription.reps[0], Math.min(prescription.reps[1], known?.lastReps ?? prescription.reps[0]));
       return {
         id: prescription.id,
-        name: prescription.name,
+        name: canonicalExerciseName({ id: prescription.id, name: prescription.name }),
         targetSets: prescription.sets,
         repRange: prescription.reps,
         rirRange: prescription.rir,

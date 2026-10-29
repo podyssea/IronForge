@@ -8,9 +8,10 @@ type InlineExercisePickerProps = {
   preferredIds?: string[];
   onSelect: (exercise: ExerciseDefinition) => void;
   onCancel: () => void;
+  mode?: "add" | "replace";
 };
 
-export function InlineExercisePicker({ exerciseId, excludedIds, onSelect, onCancel }: InlineExercisePickerProps) {
+export function InlineExercisePicker({ exerciseId, excludedIds, onSelect, onCancel, mode = "replace" }: InlineExercisePickerProps) {
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
   const results = useMemo(() => EXERCISE_LIBRARY
@@ -24,11 +25,11 @@ export function InlineExercisePicker({ exerciseId, excludedIds, onSelect, onCanc
     .sort((left, right) => left.name.localeCompare(right.name)), [excludedIds, exerciseId, query]);
 
   return <View style={styles.container}>
-    <View style={styles.dropdownTop}><Text style={styles.dropdownLabel}>SELECT REPLACEMENT</Text><Pressable accessibilityRole="button" accessibilityLabel="Close exercise dropdown" onPress={onCancel} hitSlop={8}><Text style={styles.close}>CLOSE ▲</Text></Pressable></View>
+    <View style={styles.dropdownTop}><Text style={styles.dropdownLabel}>{mode === "add" ? "SELECT EXERCISE" : "SELECT REPLACEMENT"}</Text><Pressable accessibilityRole="button" accessibilityLabel="Close exercise dropdown" onPress={onCancel} hitSlop={8}><Text style={styles.close}>CLOSE ▲</Text></Pressable></View>
     <TextInput value={search} onChangeText={setSearch} placeholder="Type to filter exercises" placeholderTextColor="#687067" style={styles.search} autoFocus autoCapitalize="none" autoCorrect={false} returnKeyType="search" />
     <Text style={styles.resultLabel}>{results.length} EXERCISES · A–Z</Text>
     <ScrollView style={styles.options} nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
-      {results.map((exercise) => <Pressable key={exercise.id} accessibilityRole="button" accessibilityLabel={`Replace with ${exercise.name}`} onPress={() => onSelect(exercise)} style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}><Text style={styles.name}>{exercise.name}</Text><Text style={styles.chevron}>›</Text></Pressable>)}
+      {results.map((exercise) => <Pressable key={exercise.id} accessibilityRole="button" accessibilityLabel={`${mode === "add" ? "Add" : "Replace with"} ${exercise.name}`} onPress={() => onSelect(exercise)} style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}><Text style={styles.name}>{exercise.name}</Text><Text style={styles.chevron}>›</Text></Pressable>)}
       {!results.length && <View style={styles.empty}><Text style={styles.emptyTitle}>No matching exercises</Text><Text style={styles.emptyText}>Try a muscle, equipment type, or another name.</Text></View>}
     </ScrollView>
   </View>;

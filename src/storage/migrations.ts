@@ -1,4 +1,4 @@
-import { ActiveSession, Exercise, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { ActiveSession, canonicalExerciseName, Exercise, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "../domain/personalBaseline";
@@ -357,7 +357,7 @@ function recoverPreviousRoutine(workouts: Workout[], records: SessionRecord[]): 
 }
 
 function normalizeExercise(exercise: Exercise): Exercise {
-  return { ...exercise, sets: exercise.sets.map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed })) };
+  return { ...exercise, name: canonicalExerciseName(exercise), sets: exercise.sets.map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed })) };
 }
 
 const EQUIPMENT: Equipment[] = ["barbell", "dumbbell", "cable", "machine", "smith-machine", "bodyweight", "resistance-band", "kettlebell"];

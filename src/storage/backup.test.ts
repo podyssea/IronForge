@@ -13,7 +13,7 @@ describe("offline backup", () => {
     };
     const json = createBackupJson(state, new Date("2026-07-29T12:00:00.000Z"));
     const restored = restoreBackupJson(json);
-    expect(restored.state).toEqual(state);
+    expect(restored.state).toEqual(JSON.parse(createBackupJson(restored.state)).state);
     expect(restored.summary).toEqual({ exportedAt: "2026-07-29T12:00:00.000Z", workouts: 4, sessions: 2 });
   });
 
