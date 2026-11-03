@@ -104,7 +104,7 @@ describe("set validation and session calculations", () => {
 });
 
 describe("active session lifecycle", () => {
-  it("uses two final working sets for back squat and keeps the deadlift calculator exception", () => {
+  it("uses two final working sets for back squat and a six-set deadlift ramp", () => {
     const source = initialFourDaySplit()[0].exercises[0];
     const workout = { id: "strength", title: "Strength", focus: "3x3", exercises: [
       { ...source, id: "back-squat", name: "Barbell Back Squat", lastWeight: 100, lastReps: 3, sets: source.sets.map((set) => ({ ...set, weight: 100 })) },
@@ -113,21 +113,28 @@ describe("active session lifecycle", () => {
     const session = startActiveSession(workout);
     expect(session.exercises[0].sets.map((set) => set.weight)).toEqual([50, 70, 100, 100]);
     expect(workingSets(session.exercises[0])).toHaveLength(2);
-    expect(session.exercises[1].sets.map((set) => set.weight)).toEqual([20, 60, 90, 120, 150, 150, 150, 150]);
-    expect(workingSets(session.exercises[1])).toHaveLength(4);
+    expect(session.exercises[1].sets.map((set) => set.weight)).toEqual([20, 50, 72.5, 90, 102.5, 112.5, 125, 135, 150]);
+    expect(workingSets(session.exercises[1])).toEqual([
+      { weight: 90, reps: 3, completed: false },
+      { weight: 102.5, reps: 3, completed: false },
+      { weight: 112.5, reps: 3, completed: false },
+      { weight: 125, reps: 3, completed: false },
+      { weight: 135, reps: 3, completed: false },
+      { weight: 150, reps: 3, completed: false },
+    ]);
   });
 
-  it("keeps conventional deadlift working sets, target, and calculated warm-ups synchronized", () => {
+  it("recalculates the conventional deadlift ramp and warm-ups from the conquered triple", () => {
     const source = initialFourDaySplit()[0].exercises[0];
     const exercise = startActiveSession({ id: "strength", title: "Strength", focus: "triples", exercises: [{ ...source, id: "conventional-deadlift", name: "Conventional Deadlift", lastWeight: 150, lastReps: 3 }] }).exercises[0];
 
-    const changedSet = updateExerciseSet(exercise, exercise.sets.length - 1, { weight: 160 });
-    expect(changedSet.lastWeight).toBe(160);
-    expect(changedSet.sets.slice(0, -4).map((set) => set.weight)).toEqual([20, 65, 95, 127.5]);
-    expect(changedSet.sets.slice(-4).map((set) => set.weight)).toEqual([160, 160, 160, 160]);
+    const adjustedDuringSession = updateExerciseSet(exercise, exercise.sets.length - 1, { weight: 147.5 });
+    expect(adjustedDuringSession.lastWeight).toBe(150);
+    expect(adjustedDuringSession.sets.at(-1)?.weight).toBe(147.5);
 
-    const changedTarget = applyWarmupLoads({ ...changedSet, lastWeight: 170 }, 170);
-    expect(changedTarget.sets.slice(-4).map((set) => set.weight)).toEqual(Array(4).fill(170));
+    const changedTarget = applyWarmupLoads({ ...adjustedDuringSession, lastWeight: 170 }, 170);
+    expect(changedTarget.sets.slice(0, -6).map((set) => set.weight)).toEqual([20, 57.5, 82.5]);
+    expect(changedTarget.sets.slice(-6).map((set) => set.weight)).toEqual([102.5, 115, 127.5, 140, 152.5, 170]);
   });
 
   it("resizes a live exercise without clearing logged sets", () => {
@@ -357,6 +364,19 @@ describe("units and workout editing", () => {
     expect(displayExerciseWeight(100, exercise, "lb")).toBe(110.2);
   });
 
+  it("shows and accepts pin-loaded weights per side while storing total load", () => {
+    const exercise = { loadingType: "pin-loaded" as const };
+    expect(displayExerciseWeight(80, exercise, "kg")).toBe(40);
+    expect(storedExerciseWeight(40, exercise, "kg")).toBe(80);
+  });
+
+  it("shows and accepts conventional deadlift plates per side after the 20 kg bar", () => {
+    const exercise = { id: "conventional-deadlift" };
+    expect(displayExerciseWeight(150, exercise, "kg")).toBe(65);
+    expect(displayExerciseWeight(20, exercise, "kg")).toBe(0);
+    expect(storedExerciseWeight(65, exercise, "kg")).toBe(150);
+  });
+
   it("updates prescriptions while retaining two working sets", () => {
     const exercise = updateExercisePrescription(initialFourDaySplit()[0].exercises[0], { targetSets: 5, repRange: [5, 7], loadIncrement: 2, restSeconds: 150 });
     expect(exercise.sets).toHaveLength(5);
@@ -389,7 +409,7 @@ describe("units and workout editing", () => {
 
     expect(resizeActiveExerciseSets(squat, 5).sets).toHaveLength(5);
     expect(resizeActiveExerciseSets(deadlift, 2)).toBe(deadlift);
-    expect(deadlift.sets).toHaveLength(5);
+    expect(deadlift.sets).toHaveLength(6);
   });
 
   it("creates and reorders custom exercises", () => {

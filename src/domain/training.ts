@@ -35,6 +35,7 @@ export type ActiveSession = { id: string; workoutId: string; workoutTitle: strin
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 const THREE_BY_THREE_EXERCISE_IDS = new Set(["conventional-deadlift"]);
+const DEADLIFT_RAMP_PERCENTAGES = [0.6, 0.675, 0.75, 0.825, 0.9, 1] as const;
 
 export function isThreeByThreeExercise(exercise: Pick<Exercise, "id">): boolean {
   return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id);
@@ -197,21 +198,23 @@ export function bestCompletedWorkingSet(exercise: Exercise): SetLog | undefined 
 
 export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.lastWeight): Exercise {
   if (isThreeByThreeExercise(exercise)) {
-    const workingCount = calculatorWorkingSetCount(exercise);
     const workingStart = workingSetStartIndex(exercise);
     const existingWorkingSets = exercise.sets.slice(workingStart);
-    const warmups = calculatedBarbellWarmups(workingWeight);
+    const rampLoads = calculatedDeadliftRamp(workingWeight);
+    const warmups = calculatedBarbellWarmups(rampLoads[0] ?? workingWeight);
     const sets = [
       ...warmups.map((set, index) => ({ ...set, completed: exercise.sets[index]?.completed ?? false })),
-      ...Array.from({ length: workingCount }, (_, index) => ({
+      ...rampLoads.map((weight, index) => ({
         ...(existingWorkingSets[index] ?? { reps: Math.max(3, exercise.repRange[0]), completed: false }),
-        weight: workingWeight,
+        weight,
+        reps: 3,
       })),
     ];
     return {
       ...exercise,
       targetSets: sets.length,
-      workingSetCount: workingCount,
+      workingSetCount: DEADLIFT_RAMP_PERCENTAGES.length,
+      repRange: [3, 3],
       lastReps: 3,
       sets,
     };
@@ -227,6 +230,9 @@ export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.la
 }
 
 export function applyWorkingLoadPreservingWarmups(exercise: Exercise, workingWeight: number): Exercise {
+  if (isThreeByThreeExercise(exercise)) {
+    return applyWarmupLoads({ ...exercise, lastWeight: workingWeight, lastReps: 3 }, workingWeight);
+  }
   const workingStart = workingSetStartIndex(exercise);
   return {
     ...exercise,
@@ -243,12 +249,7 @@ export function applyWorkingLoadPreservingWarmups(exercise: Exercise, workingWei
 
 export function updateExerciseSet(exercise: Exercise, setIndex: number, changes: Partial<SetLog>): Exercise {
   const sets = exercise.sets.map((set, index) => index === setIndex ? { ...set, ...changes } : set);
-  if (!isThreeByThreeExercise(exercise) || changes.weight === undefined || !isWorkingSet(exercise, setIndex)) {
-    return { ...exercise, sets };
-  }
-
-  const workingWeight = changes.weight;
-  return applyWarmupLoads({ ...exercise, lastWeight: workingWeight, lastReps: 3, sets }, workingWeight);
+  return { ...exercise, sets };
 }
 
 function roundThreeByThreeLoad(weight: number): number {
@@ -256,9 +257,14 @@ function roundThreeByThreeLoad(weight: number): number {
 }
 
 function calculatorWorkingSetCount(exercise: Exercise): number {
-  if (exercise.workingSetCount !== undefined) return Math.max(1, Math.min(5, exercise.workingSetCount));
-  const legacyCalculator = !exercise.programmedWorkingSets && exercise.targetSets === 6 && exercise.sets.length === 6 && exercise.repRange[0] === 3;
-  return legacyCalculator ? 3 : Math.max(1, Math.min(5, exercise.targetSets));
+  return isThreeByThreeExercise(exercise) ? DEADLIFT_RAMP_PERCENTAGES.length : Math.max(1, Math.min(5, exercise.targetSets));
+}
+
+function calculatedDeadliftRamp(conqueredTriple: number): number[] {
+  if (conqueredTriple <= 0) return DEADLIFT_RAMP_PERCENTAGES.map(() => 0);
+  return DEADLIFT_RAMP_PERCENTAGES.map((percentage, index) => index === DEADLIFT_RAMP_PERCENTAGES.length - 1
+    ? conqueredTriple
+    : Math.min(conqueredTriple, roundThreeByThreeLoad(conqueredTriple * percentage)));
 }
 
 function calculatedBarbellWarmups(workingWeight: number): SetLog[] {
@@ -432,7 +438,10 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
       }
       const best = bestCompletedWorkingSet(performed);
       if (!best) return preservePerformedWarmups(exercise.lastWeight);
-      if (isThreeByThreeExercise(performed)) return best.reps >= 3 ? preservePerformedWarmups(best.weight, 3) : preservePerformedWarmups(exercise.lastWeight);
+      if (isThreeByThreeExercise(performed)) {
+        const conqueredTriple = best.reps >= 3 ? best.weight : exercise.lastWeight;
+        return applyWarmupLoads({ ...resized, lastWeight: conqueredTriple, lastReps: 3 }, conqueredTriple);
+      }
       return {
         ...resized,
         lastWeight: best.weight,
@@ -543,21 +552,21 @@ export function storedWeight(displayedWeight: number, unit: WeightUnit): number 
 }
 
 export function displayExerciseWeight(weightKg: number, exercise: Pick<Exercise, "loadingType"> & Partial<Pick<Exercise, "id">>, unit: WeightUnit): number {
-  if (exercise.id && isThreeByThreeExercise({ id: exercise.id })) return displayWeight(Math.max(0, weightKg - 20) / 2, unit);
-  if (exercise.loadingType !== "plate-loaded") return displayWeight(weightKg, unit);
+  if (exercise.id && isThreeByThreeExercise({ id: exercise.id })) return Math.max(0, Math.round(((weightKg - 20) / 2) * 100) / 100);
+  if (!exercise.loadingType) return displayWeight(weightKg, unit);
   const perSideKg = weightKg / 2;
   return unit === "kg" ? Math.round(perSideKg * 100) / 100 : displayWeight(perSideKg, unit);
 }
 
 export function storedExerciseWeight(displayedWeight: number, exercise: Pick<Exercise, "loadingType"> & Partial<Pick<Exercise, "id">>, unit: WeightUnit): number {
+  if (exercise.id && isThreeByThreeExercise({ id: exercise.id })) return Math.max(20, storedWeight(displayedWeight, "kg") * 2 + 20);
   const weightKg = storedWeight(displayedWeight, unit);
-  if (exercise.id && isThreeByThreeExercise({ id: exercise.id })) return weightKg * 2 + 20;
-  return exercise.loadingType === "plate-loaded" ? weightKg * 2 : weightKg;
+  return exercise.loadingType ? weightKg * 2 : weightKg;
 }
 
 export function exerciseWeightLabel(exercise: Pick<Exercise, "loadingType"> & Partial<Pick<Exercise, "id">>, unit: WeightUnit): string {
-  if (exercise.id && isThreeByThreeExercise({ id: exercise.id })) return `${weightUnitLabel(unit)}/side plates`;
-  return exercise.loadingType === "plate-loaded" ? `${weightUnitLabel(unit)}/side` : weightUnitLabel(unit);
+  if (exercise.id && isThreeByThreeExercise({ id: exercise.id })) return "kg/side";
+  return exercise.loadingType ? `${weightUnitLabel(unit)}/side` : weightUnitLabel(unit);
 }
 
 export function weightUnitLabel(unit: WeightUnit): string {
