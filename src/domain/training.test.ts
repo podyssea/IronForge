@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, workingSets } from "./training";
+import { addExerciseToWorkoutDraft, addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeExerciseFromWorkoutDraft, removeWorkoutExercise, repeatSessionFromRecord, replaceExerciseInWorkoutDraft, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -476,6 +476,82 @@ describe("exercise replacement", () => {
     expect(updated[0].exercises[0].lastWeight).toBe(100);
     expect(updated[0].exercises[0].loadingType).toBe("plate-loaded");
     expect(updated[0].exercises[0].sets.map((set) => set.weight)).toEqual([50, 70, 100, 100]);
+  });
+});
+
+describe("immutable workout draft editing", () => {
+  it("replaces one slot without mutating the source workout or history", () => {
+    const workout = initialFourDaySplit()[0];
+    const sourceExercise = workout.exercises[0];
+    sourceExercise.restSeconds = 150;
+    sourceExercise.sets[0].completed = true;
+    const replacement = getExerciseDefinition("dumbbell-bench")!;
+    const historicalExercise = {
+      ...workout.exercises[1],
+      id: replacement.id,
+      name: replacement.name,
+      loadingType: "plate-loaded" as const,
+      sets: workout.exercises[1].sets.map((set, index) => ({ ...set, weight: index === 2 ? 50 : 20, completed: true })),
+    };
+    const records = [{ id: "history", completedAt: "2026-07-27T10:00:00.000Z", workoutTitle: "Upper", exercises: [historicalExercise], volume: 0 }];
+    const sourceSnapshot = structuredClone(workout);
+    const historySnapshot = structuredClone(records);
+
+    const updated = replaceExerciseInWorkoutDraft(workout, sourceExercise.id, replacement, { records });
+
+    expect(updated).not.toBe(workout);
+    expect(updated.exercises[0]).toMatchObject({ id: replacement.id, targetSets: sourceExercise.targetSets, repRange: sourceExercise.repRange, restSeconds: 150, lastWeight: 50 });
+    expect(updated.exercises[0].sets.every((set) => !set.completed)).toBe(true);
+    expect(workout).toEqual(sourceSnapshot);
+    expect(records).toEqual(historySnapshot);
+  });
+
+  it("rejects a duplicate or unknown replacement as a safe no-op", () => {
+    const workout = initialFourDaySplit()[0];
+    const duplicate = workout.exercises[1];
+
+    expect(replaceExerciseInWorkoutDraft(workout, workout.exercises[0].id, duplicate)).toBe(workout);
+    expect(replaceExerciseInWorkoutDraft(workout, "missing-exercise", { id: "dumbbell-bench", name: "Dumbbell Bench Press" })).toBe(workout);
+  });
+
+  it("adds a distinct exercise without mutating the source and rejects duplicates", () => {
+    const workout = initialFourDaySplit()[0];
+    const sourceSnapshot = structuredClone(workout);
+    const definition = getExerciseDefinition("cable-fly")!;
+
+    const updated = addExerciseToWorkoutDraft(workout, definition);
+
+    expect(updated).not.toBe(workout);
+    expect(updated.exercises.at(-1)).toMatchObject({ id: definition.id, targetSets: 3 });
+    expect(updated.exercises.at(-1)?.sets.every((set) => !set.completed)).toBe(true);
+    expect(workout).toEqual(sourceSnapshot);
+    expect(addExerciseToWorkoutDraft(updated, definition)).toBe(updated);
+  });
+
+  it("prevents an empty workout and clears an orphaned superset", () => {
+    const workout = initialFourDaySplit()[0];
+    const paired = toggleWorkoutSuperset(workout, workout.exercises[1].id);
+    const removed = removeExerciseFromWorkoutDraft(paired, paired.exercises[1].id);
+
+    expect(removed.exercises.every((exercise) => exercise.supersetId === undefined)).toBe(true);
+    expect(paired.exercises[2].supersetId).toBeTruthy();
+
+    const single = { ...workout, exercises: [workout.exercises[0]] };
+    expect(removeExerciseFromWorkoutDraft(single, single.exercises[0].id)).toBe(single);
+    expect(removeExerciseFromWorkoutDraft(workout, "missing-exercise")).toBe(workout);
+  });
+
+  it("reorders an exercise block without mutating the source", () => {
+    const workout = initialFourDaySplit()[0];
+    const paired = toggleWorkoutSuperset(workout, workout.exercises[1].id);
+    const sourceSnapshot = structuredClone(paired);
+
+    const moved = moveWorkoutExercise(paired, paired.exercises[1].id, 1);
+
+    expect(moved).not.toBe(paired);
+    expect(moved.exercises.filter((exercise) => exercise.supersetId)).toHaveLength(2);
+    expect(paired).toEqual(sourceSnapshot);
+    expect(moveWorkoutExercise(paired, "missing-exercise", 1)).toBe(paired);
   });
 });
 

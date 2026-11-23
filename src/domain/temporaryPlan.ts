@@ -56,6 +56,15 @@ export function completeExpiredTemporaryPlans(plans: TemporaryTrainingPlan[], no
   });
 }
 
+export function updateTemporaryPlanDraftWorkout(plans: TemporaryTrainingPlan[], planId: string, workout: Workout): TemporaryTrainingPlan[] {
+  const plan = plans.find((candidate) => candidate.id === planId);
+  if (!plan || plan.status !== "draft" || !plan.workouts.some((candidate) => candidate.id === workout.id)) return plans;
+  return plans.map((candidate) => candidate.id !== planId ? candidate : {
+    ...candidate,
+    workouts: candidate.workouts.map((current) => current.id === workout.id ? workout : current),
+  });
+}
+
 function dateOnly(value: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [year, month, day] = value.split("-").map(Number);

@@ -452,17 +452,29 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
   });
 }
 
-export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string, replacement: { id: string; name: string }, records: SessionRecord[] = []): Workout[] {
-  const known = workouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === replacement.id);
-  const historical = records
+export type WorkoutEditingContext = {
+  knownExercises?: Exercise[];
+  records?: SessionRecord[];
+};
+
+function knownExercisePerformance(exerciseId: string, context: WorkoutEditingContext): { known?: Exercise; historical?: { exercise: Exercise; best: SetLog } } {
+  const known = context.knownExercises?.find((exercise) => exercise.id === exerciseId);
+  const historical = (context.records ?? [])
     .flatMap((record) => record.exercises)
-    .filter((exercise) => exercise.id === replacement.id)
+    .filter((exercise) => exercise.id === exerciseId)
     .map((exercise) => ({ exercise, best: bestCompletedWorkingSet(exercise) }))
     .filter((item): item is { exercise: Exercise; best: SetLog } => Boolean(item.best))
     .reduce<{ exercise: Exercise; best: SetLog } | undefined>((best, item) => !best || item.best.weight > best.best.weight || (item.best.weight === best.best.weight && item.best.reps > best.best.reps) ? item : best, undefined);
+  return { known, historical };
+}
+
+export function replaceExerciseInWorkoutDraft(workout: Workout, exerciseId: string, replacement: { id: string; name: string }, context: WorkoutEditingContext = {}): Workout {
+  const source = workout.exercises.find((exercise) => exercise.id === exerciseId);
+  if (!source || source.id === replacement.id || workout.exercises.some((exercise) => exercise.id !== exerciseId && exercise.id === replacement.id)) return workout;
+  const { known, historical } = knownExercisePerformance(replacement.id, context);
   const bestWeight = Math.max(known?.lastWeight ?? 0, historical?.best.weight ?? 0);
   const bestReps = historical?.best.weight === bestWeight ? historical.best.reps : known?.lastReps;
-  return workouts.map((workout) => workout.id !== workoutId ? workout : {
+  return {
     ...workout,
     exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads(normalizeExercisePrescription({
       ...exercise,
@@ -473,17 +485,12 @@ export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, e
       lastReps: bestReps ?? exercise.repRange[0],
       sets: Array.from({ length: exercise.targetSets }, () => ({ weight: bestWeight, reps: bestReps ?? exercise.repRange[0], completed: false })),
     }), bestWeight)),
-  });
+  };
 }
 
-export function addWorkoutExercise(workouts: Workout[], workoutId: string, definition: { id: string; name: string; modality: "compound" | "isolation"; defaultRepRanges: { hypertrophy: [number, number] } }, records: SessionRecord[] = []): Workout[] {
-  const known = workouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === definition.id);
-  const historical = records
-    .flatMap((record) => record.exercises)
-    .filter((exercise) => exercise.id === definition.id)
-    .map((exercise) => ({ exercise, best: bestCompletedWorkingSet(exercise) }))
-    .filter((item): item is { exercise: Exercise; best: SetLog } => Boolean(item.best))
-    .reduce<{ exercise: Exercise; best: SetLog } | undefined>((best, item) => !best || item.best.weight > best.best.weight || (item.best.weight === best.best.weight && item.best.reps > best.best.reps) ? item : best, undefined);
+export function addExerciseToWorkoutDraft(workout: Workout, definition: { id: string; name: string; modality: "compound" | "isolation"; defaultRepRanges: { hypertrophy: [number, number] } }, context: WorkoutEditingContext = {}): Workout {
+  if (workout.exercises.some((exercise) => exercise.id === definition.id)) return workout;
+  const { known, historical } = knownExercisePerformance(definition.id, context);
   const workingWeight = Math.max(known?.lastWeight ?? 0, historical?.best.weight ?? 0);
   const lastReps = historical?.best.weight === workingWeight ? historical.best.reps : known?.lastReps ?? definition.defaultRepRanges.hypertrophy[0];
   const targetSets = definition.modality === "isolation" ? 3 : 4;
@@ -499,19 +506,30 @@ export function addWorkoutExercise(workouts: Workout[], workoutId: string, defin
     restSeconds: known?.restSeconds ?? historical?.exercise.restSeconds ?? 90,
     sets: Array.from({ length: targetSets }, () => ({ weight: workingWeight, reps: lastReps, completed: false })),
   }), workingWeight);
-  return workouts.map((workout) => workout.id !== workoutId || workout.exercises.some((exercise) => exercise.id === definition.id) ? workout : {
+  return { ...workout, exercises: [...workout.exercises, added] };
+}
+
+export function removeExerciseFromWorkoutDraft(workout: Workout, exerciseId: string): Workout {
+  if (workout.exercises.length <= 1 || !workout.exercises.some((exercise) => exercise.id === exerciseId)) return workout;
+  return {
     ...workout,
-    exercises: [...workout.exercises, added],
-  });
+    exercises: normalizeSupersetPairs(workout.exercises.filter((exercise) => exercise.id !== exerciseId)),
+  };
+}
+
+export function replaceWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string, replacement: { id: string; name: string }, records: SessionRecord[] = []): Workout[] {
+  const knownExercises = workouts.flatMap((workout) => workout.exercises);
+  return workouts.map((workout) => workout.id === workoutId ? replaceExerciseInWorkoutDraft(workout, exerciseId, replacement, { knownExercises, records }) : workout);
+}
+
+export function addWorkoutExercise(workouts: Workout[], workoutId: string, definition: { id: string; name: string; modality: "compound" | "isolation"; defaultRepRanges: { hypertrophy: [number, number] } }, records: SessionRecord[] = []): Workout[] {
+  const knownExercises = workouts.flatMap((workout) => workout.exercises);
+  return workouts.map((workout) => workout.id === workoutId ? addExerciseToWorkoutDraft(workout, definition, { knownExercises, records }) : workout);
 }
 
 export function removeWorkoutExercise(workouts: Workout[], workoutId: string, exerciseId: string): Workout[] {
-  const source = workouts.find((workout) => workout.id === workoutId);
-  if (!source || source.exercises.length <= 1 || !source.exercises.some((exercise) => exercise.id === exerciseId)) return workouts;
-  return workouts.map((workout) => workout.id !== workoutId || workout.exercises.length <= 1 ? workout : {
-    ...workout,
-    exercises: normalizeSupersetPairs(workout.exercises.filter((exercise) => exercise.id !== exerciseId)),
-  });
+  if (!workouts.some((workout) => workout.id === workoutId && workout.exercises.length > 1 && workout.exercises.some((exercise) => exercise.id === exerciseId))) return workouts;
+  return workouts.map((workout) => workout.id === workoutId ? removeExerciseFromWorkoutDraft(workout, exerciseId) : workout);
 }
 
 export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string {
