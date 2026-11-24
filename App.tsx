@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, updateExerciseSet, weightUnitLabel, Workout } from "./src/domain/training";
+import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, completeExerciseSummary, displayWeight, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startDeloadExerciseSummarySession, startExerciseSummarySession, TrainingPhase, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, recommendedTrainingSplit, rotateIsolationExercises, routineChangeDate, routineWeek, TrainingSplit } from "./src/domain/programGenerator";
 import { deleteSessionRecord, renameSessionExercise } from "./src/domain/sessionJournal";
@@ -114,8 +114,9 @@ export default function App() {
   const selectedWorkoutIndex = selected < visibleWorkouts.length ? selected : 0;
   const workout = visibleWorkouts[selectedWorkoutIndex];
   const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, estimatedDurationMinutes: activeSession.estimatedDurationMinutes, strengthPriority: activeSession.strengthPriority, exercises: activeSession.exercises } : workout;
-  const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && !setValidationError(set, exercise, index)).length, 0);
-  const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.targetSets, 0);
+  const summaryMode = activeSession?.exerciseLogFormat === "exercise-summary-v1";
+  const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && (summaryMode || !setValidationError(set, exercise, index))).length, 0);
+  const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + (summaryMode ? exercise.sets.length : exercise.targetSets), 0);
   const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);
 
   function updateVisibleWorkouts(update: (current: Workout[]) => Workout[]) {
@@ -232,8 +233,9 @@ export default function App() {
 
   function finishWorkout() {
     if (!activeSession) return;
-    if (!completedSets) return Alert.alert("Log a set first", "Mark your completed sets to finish this workout.");
-    if (!isSessionComplete(activeSession.exercises)) {
+    if (!completedSets) return Alert.alert(summaryMode ? "Complete an exercise first" : "Log a set first", summaryMode ? "Confirm at least one exercise before finishing this workout." : "Mark your completed sets to finish this workout.");
+    const complete = summaryMode ? isExerciseSummarySessionComplete(activeSession) : isSessionComplete(activeSession.exercises);
+    if (!complete) {
       return Alert.alert("Finish partial workout?", `${completedSets} of ${totalSets} sets are complete. Incomplete sets will not count toward your volume or latest performance.`, [
         { text: "Keep training", style: "cancel" },
         { text: "Finish anyway", onPress: saveFinishedWorkout },
@@ -242,13 +244,28 @@ export default function App() {
     saveFinishedWorkout();
   }
 
+  function changeExerciseSummary(exerciseId: string, changes: Parameters<typeof updateExerciseSummary>[2]) {
+    setActiveSession((current) => current ? updateExerciseSummary(current, exerciseId, changes) : current);
+  }
+
+  function finishExerciseSummary(exerciseId: string) {
+    setActiveSession((current) => current ? completeExerciseSummary(current, exerciseId) : current);
+  }
+
+  function reopenSummary(exerciseId: string) {
+    setActiveSession((current) => current ? reopenExerciseSummary(current, exerciseId) : current);
+  }
+
   function saveFinishedWorkout() {
     if (!activeSession) return;
     const record = completeActiveSession(activeSession);
     setRecords((current) => sortSessionRecords([record, ...current]));
     updateVisibleWorkouts((current) => applySessionPerformance(current, activeSession));
     setActiveSession(null);
-    Alert.alert("Workout saved", `${completedSets} sets logged · ${displayWeight(record.volume, settings.weightUnit).toLocaleString()} ${weightUnitLabel(settings.weightUnit)} volume`);
+    const volumeMessage = record.volume === null
+      ? "volume unavailable because reps were not tracked"
+      : `${displayWeight(record.volume, settings.weightUnit).toLocaleString()} ${weightUnitLabel(settings.weightUnit)} volume`;
+    Alert.alert("Workout saved", `${completedSets} sets logged · ${volumeMessage}`);
     setView("history");
   }
 
@@ -334,7 +351,13 @@ export default function App() {
       const temporaryWorkoutId = `active-${activeSession.id}`;
       const activeWorkout: Workout = { id: temporaryWorkoutId, title: activeSession.workoutTitle, focus: activeSession.focus, exercises: activeSession.exercises };
       const updatedActive = addWorkoutExercise([...visibleWorkouts, activeWorkout], temporaryWorkoutId, definition, records).find((item) => item.id === temporaryWorkoutId);
-      if (updatedActive) setActiveSession((current) => current ? { ...current, exercises: updatedActive.exercises } : current);
+      if (updatedActive) setActiveSession((current) => {
+        if (!current) return current;
+        const exercises = current.exerciseLogFormat === "exercise-summary-v1"
+          ? updatedActive.exercises.map((exercise) => current.exercises.some((item) => item.id === exercise.id) ? exercise : startExerciseSummarySession({ ...updatedActive, exercises: [exercise] }, records).exercises[0])
+          : updatedActive.exercises;
+        return { ...current, exercises };
+      });
     }
     updateVisibleWorkouts((current) => addWorkoutExercise(current, targetWorkoutId, definition, records));
     setAddingExercise(false);
@@ -368,7 +391,9 @@ export default function App() {
         setActiveSession((current) => !current ? current : {
           ...current,
           focusedExerciseId: current.focusedExerciseId === replacementExerciseId ? replacement.id : current.focusedExerciseId,
-          exercises: replacedActiveWorkout.exercises,
+          exercises: current.exerciseLogFormat === "exercise-summary-v1"
+            ? replacedActiveWorkout.exercises.map((exercise) => exercise.id === replacement.id ? startExerciseSummarySession({ ...replacedActiveWorkout, exercises: [exercise] }, records).exercises[0] : exercise)
+            : replacedActiveWorkout.exercises,
         });
       }
       updateVisibleWorkouts((current) => replaceWorkoutExercise(current, activeSession.workoutId, replacementExerciseId, replacement, records));
@@ -416,7 +441,7 @@ export default function App() {
 
   function beginWorkout() {
     const deload = deloadWorkoutIds.has(workout.id);
-    setActiveSession(deload ? startDeloadSession(workout) : startActiveSession(workout));
+    setActiveSession(deload ? startDeloadExerciseSummarySession(workout, records) : startExerciseSummarySession(workout, records));
     if (deload) setDeloadWorkoutIds((current) => {
       const next = new Set(current);
       next.delete(workout.id);
@@ -438,7 +463,7 @@ export default function App() {
       setView("log");
       return Alert.alert("Workout in progress", "Finish or cancel your active workout before repeating a saved session.");
     }
-    const repeated = repeatSessionFromRecord(record, records, new Date(), visibleWorkouts, deload);
+    const repeated = repeatExerciseSummarySession(record, records, new Date(), visibleWorkouts, deload);
     const workoutIndex = visibleWorkouts.findIndex((item) => item.id === repeated.workoutId);
     if (workoutIndex >= 0) setSelected(workoutIndex);
     setActiveSession(repeated);
@@ -612,7 +637,7 @@ export default function App() {
           onSave={saveTemporaryDraftWorkout}
           onCancel={closeTemporaryDraftEditor}
         />
-      </> : <WorkoutScreen workouts={visibleWorkouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} canStart={visibleTemporaryPlan?.status !== "draft"} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} replacementExerciseId={replacementExerciseId} preferredExerciseIds={coachingProfile.preferredExerciseIds} onChooseReplacement={chooseReplacement} onCancelReplacement={() => setReplacementExerciseId(null)} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} addingExercise={addingExercise} onChooseAddition={chooseAddition} onCancelAddition={() => setAddingExercise(false)} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByThreeWorkingLoad} />}
+      </> : <WorkoutScreen workouts={visibleWorkouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} canStart={visibleTemporaryPlan?.status !== "draft"} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} replacementExerciseId={replacementExerciseId} preferredExerciseIds={coachingProfile.preferredExerciseIds} onChooseReplacement={chooseReplacement} onCancelReplacement={() => setReplacementExerciseId(null)} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} addingExercise={addingExercise} onChooseAddition={chooseAddition} onCancelAddition={() => setAddingExercise(false)} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByThreeWorkingLoad} onSummaryChange={changeExerciseSummary} onSummaryComplete={finishExerciseSummary} onSummaryReopen={reopenSummary} />}
     </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;

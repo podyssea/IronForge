@@ -1,6 +1,12 @@
 export type WeightUnit = "kg" | "lb";
 export type CalendarDate = string & { readonly __brand: "CalendarDate" };
-export type SetLog = { weight: number; reps: number; completed: boolean };
+export type SetLog = { weight: number; reps: number | null; completed: boolean };
+export type TrackedSetLog = SetLog & { reps: number };
+export type ExerciseLogFormat = "legacy-set-v1" | "exercise-summary-v1";
+export type PerformedExercise =
+  | { kind: "legacy-sets"; sets: (SetLog & { reps: number })[]; volume: number }
+  | { kind: "summary"; workingWeight: number; workingSetCount: number; representativeReps: number | null }
+  | { kind: "unavailable"; reason: "no-completed-sets" | "inconsistent-summary" };
 export type LoadingType = "pin-loaded" | "plate-loaded";
 export type ReadinessCheckIn = { energy: number; sleep: number; soreness: number };
 export type ReadinessAdjustment = {
@@ -31,8 +37,8 @@ export type Exercise = {
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[]; estimatedDurationMinutes?: [number, number]; strengthPriority?: string };
-export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; performedOn?: CalendarDate; entryMode?: "backfill"; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
-export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; estimatedDurationMinutes?: [number, number]; strengthPriority?: string; exercises: Exercise[] };
+export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; performedOn?: CalendarDate; entryMode?: "backfill"; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; exerciseLogFormat?: ExerciseLogFormat; volume: number | null };
+export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; estimatedDurationMinutes?: [number, number]; strengthPriority?: string; exercises: Exercise[]; exerciseLogFormat?: ExerciseLogFormat };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
 const THREE_BY_THREE_EXERCISE_IDS = new Set(["conventional-deadlift"]);
@@ -118,20 +124,24 @@ export function applyTrainingPhase(workouts: Workout[], phase: TrainingPhase): W
     const scale = phase === "deload" ? 0.85 : 1;
     const sets = Array.from({ length: targetSets }, (_, index) => {
       const source = exercise.sets[index] ?? exercise.sets[exercise.sets.length - 1];
-      return { ...source, weight: Math.round(source.weight * scale * 2) / 2, reps: Math.min(source.reps, repRange[1]), completed: false };
+      return { ...source, weight: Math.round(source.weight * scale * 2) / 2, reps: Math.min(source.reps ?? exercise.lastReps, repRange[1]), completed: false };
     });
     return { ...exercise, targetSets, repRange, sets };
   }) }));
 }
 
 export function sessionVolume(exercises: Exercise[]): number {
-  return exercises.reduce((total, exercise) => total + exercise.sets.filter((set, index) => set.completed && !setValidationError(set, exercise, index)).reduce((sum, set) => sum + set.weight * set.reps, 0), 0);
+  return exercises.reduce((total, exercise) => total + exercise.sets.filter((set, index): set is TrackedSetLog => set.completed && hasTrackedReps(set) && !setValidationError(set, exercise, index)).reduce((sum, set) => sum + set.weight * set.reps, 0), 0);
+}
+
+export function hasTrackedReps(set: SetLog): set is TrackedSetLog {
+  return set.reps !== null;
 }
 
 export function setValidationError(set: SetLog, exercise?: Exercise, setIndex = 0): string | null {
   if (!Number.isFinite(set.weight) || set.weight < 0) return "Weight must be zero or greater";
   const minimumReps = exercise ? Math.min(6, exercise.repRange[0]) : 6;
-  if (!Number.isInteger(set.reps) || set.reps < minimumReps) return `Enter at least ${minimumReps} reps`;
+  if (set.reps === null || !Number.isInteger(set.reps) || set.reps < minimumReps) return `Enter at least ${minimumReps} reps`;
   return null;
 }
 
@@ -157,9 +167,151 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
     strengthPriority: workout.strengthPriority,
     startedAt: now.toISOString(),
     notes: "",
+    exerciseLogFormat: "legacy-set-v1",
     focusedExerciseId: exercises[0]?.id,
     exercises,
   };
+}
+
+export function startExerciseSummarySession(workout: Workout, records: SessionRecord[], now = new Date()): ActiveSession {
+  const exercises = workout.exercises.map((exercise) => {
+    const seed = latestSummarySeed(records, exercise.id) ?? {
+      workingWeight: exercise.lastWeight,
+      workingSetCount: Math.max(1, workingSets(exercise).length || exercise.targetSets),
+    };
+    return {
+      ...exercise,
+      lastWeight: seed.workingWeight,
+      targetSets: seed.workingSetCount,
+      workingSetCount: seed.workingSetCount,
+      sets: Array.from({ length: seed.workingSetCount }, () => ({ weight: seed.workingWeight, reps: null, completed: false })),
+    };
+  });
+  return {
+    id: String(now.getTime()),
+    workoutId: workout.id,
+    workoutTitle: workout.title,
+    focus: workout.focus,
+    estimatedDurationMinutes: workout.estimatedDurationMinutes,
+    strengthPriority: workout.strengthPriority,
+    startedAt: now.toISOString(),
+    notes: "",
+    exerciseLogFormat: "exercise-summary-v1",
+    focusedExerciseId: exercises[0]?.id,
+    exercises,
+  };
+}
+
+export function startDeloadExerciseSummarySession(workout: Workout, records: SessionRecord[], now = new Date()): ActiveSession {
+  return applySummaryDeload(startExerciseSummarySession(workout, records, now));
+}
+
+export function repeatExerciseSummarySession(record: SessionRecord, records: SessionRecord[], now = new Date(), currentWorkouts: Workout[] = [], deload = false): ActiveSession {
+  const currentWorkout = currentWorkouts.find((workout) => workout.id === record.sourceWorkoutId);
+  const workout: Workout = {
+    id: record.sourceWorkoutId ?? `repeat-${record.id}`,
+    title: record.workoutTitle,
+    focus: "Repeated from workout history",
+    exercises: record.exercises.map((recordedExercise) => currentWorkout?.exercises.find((exercise) => exercise.id === recordedExercise.id) ?? recordedExercise),
+  };
+  const session = startExerciseSummarySession(workout, records, now);
+  return deload ? applySummaryDeload(session) : session;
+}
+
+function applySummaryDeload(session: ActiveSession): ActiveSession {
+  return {
+    ...session,
+    focus: `${session.focus} · Deload 75%`,
+    deload: true,
+    exercises: session.exercises.map((exercise) => {
+      const workingWeight = roundExerciseLoad((exercise.sets[0]?.weight ?? exercise.lastWeight) * 0.75, exercise);
+      return {
+        ...exercise,
+        lastWeight: workingWeight,
+        sets: exercise.sets.map(() => ({ weight: workingWeight, reps: null, completed: false })),
+      };
+    }),
+  };
+}
+
+export type ExerciseSummaryChanges = {
+  workingWeight?: number;
+  workingSetCount?: number;
+  representativeReps?: number | null;
+};
+
+export function updateExerciseSummary(session: ActiveSession, exerciseId: string, changes: ExerciseSummaryChanges): ActiveSession {
+  if (session.exerciseLogFormat !== "exercise-summary-v1") return session;
+  const exercise = session.exercises.find((item) => item.id === exerciseId);
+  if (!exercise) return session;
+  const current = exercise.sets[0] ?? { weight: exercise.lastWeight, reps: null, completed: false };
+  const workingWeight = changes.workingWeight ?? current.weight;
+  const workingSetCount = changes.workingSetCount ?? Math.max(1, exercise.sets.length);
+  const representativeReps = Object.prototype.hasOwnProperty.call(changes, "representativeReps") ? changes.representativeReps ?? null : current.reps;
+  if (!Number.isFinite(workingWeight) || workingWeight < 0 || workingWeight > 2_000) return session;
+  if (!Number.isInteger(workingSetCount) || workingSetCount < 1 || workingSetCount > 20) return session;
+  if (representativeReps !== null && (!Number.isInteger(representativeReps) || representativeReps < 1 || representativeReps > 100)) return session;
+  const completed = exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
+  return {
+    ...session,
+    exercises: session.exercises.map((item) => item.id !== exerciseId ? item : {
+      ...item,
+      lastWeight: workingWeight,
+      targetSets: workingSetCount,
+      workingSetCount,
+      sets: Array.from({ length: workingSetCount }, () => ({ weight: workingWeight, reps: representativeReps, completed })),
+    }),
+  };
+}
+
+export function completeExerciseSummary(session: ActiveSession, exerciseId: string): ActiveSession {
+  if (session.exerciseLogFormat !== "exercise-summary-v1") return session;
+  const exercise = session.exercises.find((item) => item.id === exerciseId);
+  if (!exercise || exercise.sets.every((set) => set.completed)) return session;
+  const candidate = { ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: true })) };
+  if (performedExercise(candidate, "exercise-summary-v1").kind !== "summary") return session;
+  const exercises = session.exercises.map((item) => item.id === exerciseId ? candidate : item);
+  const currentIndex = exercises.findIndex((item) => item.id === exerciseId);
+  const next = [...exercises.slice(currentIndex + 1), ...exercises.slice(0, currentIndex)]
+    .find((item) => !item.sets.length || item.sets.some((set) => !set.completed));
+  return { ...session, focusedExerciseId: next?.id, exercises };
+}
+
+export function reopenExerciseSummary(session: ActiveSession, exerciseId: string): ActiveSession {
+  if (session.exerciseLogFormat !== "exercise-summary-v1") return session;
+  const exercise = session.exercises.find((item) => item.id === exerciseId);
+  if (!exercise || !exercise.sets.some((set) => set.completed)) return session;
+  return {
+    ...session,
+    focusedExerciseId: exerciseId,
+    exercises: session.exercises.map((item) => item.id === exerciseId ? { ...item, sets: item.sets.map((set) => ({ ...set, completed: false })) } : item),
+  };
+}
+
+export function isExerciseSummarySessionComplete(session: ActiveSession): boolean {
+  return session.exerciseLogFormat === "exercise-summary-v1"
+    && session.exercises.every((exercise) => exercise.sets.length > 0
+      && exercise.sets.every((set) => set.completed)
+      && performedExercise(exercise, "exercise-summary-v1").kind === "summary");
+}
+
+function latestSummarySeed(records: SessionRecord[], exerciseId: string): { workingWeight: number; workingSetCount: number } | undefined {
+  return [...records]
+    .filter((record) => !record.deload)
+    .sort((left, right) => new Date(right.completedAt).getTime() - new Date(left.completedAt).getTime())
+    .flatMap((record) => {
+      const exercise = record.exercises.find((item) => item.id === exerciseId);
+      if (!exercise) return [];
+      const performed = performedExercise(exercise, record.exerciseLogFormat ?? "legacy-set-v1");
+      if (performed.kind === "summary") return [{ workingWeight: performed.workingWeight, workingSetCount: performed.workingSetCount }];
+      if (performed.kind === "legacy-sets") {
+        return [{
+          workingWeight: performed.sets.reduce((maximum, set) => Math.max(maximum, set.weight), 0),
+          workingSetCount: performed.sets.length,
+        }];
+      }
+      return [];
+    })[0];
 }
 
 export function startDeloadSession(workout: Workout, now = new Date()): ActiveSession {
@@ -191,10 +343,29 @@ export function workingSets(exercise: Exercise): SetLog[] {
   return exercise.sets.slice(workingSetStartIndex(exercise));
 }
 
-export function bestCompletedWorkingSet(exercise: Exercise): SetLog | undefined {
+export function performedExercise(exercise: Exercise, format: ExerciseLogFormat): PerformedExercise {
+  if (format === "legacy-set-v1") {
+    const startIndex = workingSetStartIndex(exercise);
+    const sets = workingSets(exercise).filter((set, index): set is TrackedSetLog =>
+      set.completed && hasTrackedReps(set) && !setValidationError(set, exercise, startIndex + index));
+    if (!sets.length) return { kind: "unavailable", reason: "no-completed-sets" };
+    return { kind: "legacy-sets", sets, volume: sets.reduce((sum, set) => sum + set.weight * set.reps, 0) };
+  }
+
+  const sets = exercise.sets.filter((set) => set.completed);
+  if (!sets.length) return { kind: "unavailable", reason: "no-completed-sets" };
+  const first = sets[0];
+  const validWeight = Number.isFinite(first.weight) && first.weight >= 0 && first.weight <= 2_000;
+  const validReps = first.reps === null || (Number.isInteger(first.reps) && first.reps >= 1 && first.reps <= 100);
+  const consistent = sets.every((set) => set.weight === first.weight && set.reps === first.reps);
+  if (!validWeight || !validReps || !consistent || sets.length > 20) return { kind: "unavailable", reason: "inconsistent-summary" };
+  return { kind: "summary", workingWeight: first.weight, workingSetCount: sets.length, representativeReps: first.reps };
+}
+
+export function bestCompletedWorkingSet(exercise: Exercise): TrackedSetLog | undefined {
   return workingSets(exercise)
-    .filter((set, index) => set.completed && !setValidationError(set, exercise, workingSetStartIndex(exercise) + index))
-    .reduce<SetLog | undefined>((best, set) => !best || set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps) ? set : best, undefined);
+    .filter((set, index): set is TrackedSetLog => set.completed && hasTrackedReps(set) && !setValidationError(set, exercise, workingSetStartIndex(exercise) + index))
+    .reduce<TrackedSetLog | undefined>((best, set) => !best || set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps) ? set : best, undefined);
 }
 
 export function applyWarmupLoads(exercise: Exercise, workingWeight = exercise.lastWeight): Exercise {
@@ -322,6 +493,14 @@ export function startRecoveryAwareSession(workout: Workout, checkIn: ReadinessCh
 }
 
 export function completeActiveSession(session: ActiveSession, now = new Date()): SessionRecord {
+  const summaryFormat = session.exerciseLogFormat === "exercise-summary-v1";
+  const hasUntrackedCompletedReps = summaryFormat && session.exercises.some((exercise) => exercise.sets.some((set) => set.completed && set.reps === null));
+  const summaryVolume = summaryFormat ? session.exercises.reduce((total, exercise) => {
+    const performed = performedExercise(exercise, "exercise-summary-v1");
+    return performed.kind === "summary" && performed.representativeReps !== null
+      ? total + performed.workingWeight * performed.workingSetCount * performed.representativeReps
+      : total;
+  }, 0) : 0;
   return {
     id: session.id,
     sourceWorkoutId: session.workoutId,
@@ -332,7 +511,17 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
     deload: session.deload,
     readiness: session.readiness,
     workoutTitle: session.workoutTitle,
+    exerciseLogFormat: session.exerciseLogFormat ?? "legacy-set-v1",
     exercises: session.exercises.map((exercise) => {
+      if (summaryFormat) {
+        const performed = performedExercise(exercise, "exercise-summary-v1");
+        return {
+          ...exercise,
+          lastWeight: performed.kind === "summary" ? performed.workingWeight : exercise.lastWeight,
+          lastReps: performed.kind === "summary" && performed.representativeReps !== null ? performed.representativeReps : exercise.lastReps,
+          sets: exercise.sets.map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed })),
+        };
+      }
       const best = bestCompletedWorkingSet(exercise);
       return {
         ...exercise,
@@ -341,7 +530,7 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
         sets: exercise.sets.map((set, index) => ({ weight: set.weight, reps: set.reps, completed: set.completed && !setValidationError(set, exercise, index) })),
       };
     }),
-    volume: sessionVolume(session.exercises),
+    volume: hasUntrackedCompletedReps ? null : summaryFormat ? summaryVolume : sessionVolume(session.exercises),
   };
 }
 
@@ -353,6 +542,7 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
     focus: "Repeated from workout history",
     startedAt: now.toISOString(),
     notes: "",
+    exerciseLogFormat: "legacy-set-v1",
     exercises: record.exercises.map((recordedExercise) => {
       const current = currentWorkouts.flatMap((workout) => workout.exercises).find((exercise) => exercise.id === recordedExercise.id);
       const latest = latestPerformedExercise(records, recordedExercise.id) ?? current ?? recordedExercise;
@@ -410,6 +600,23 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
     exercises: workout.exercises.map((exercise) => {
       const performed = session.exercises.find((item) => item.id === exercise.id);
       if (!performed) return exercise;
+      if (session.exerciseLogFormat === "exercise-summary-v1") {
+        const summary = performedExercise(performed, "exercise-summary-v1");
+        if (summary.kind !== "summary") return exercise;
+        const targetSets = Math.max(2, Math.min(5, summary.workingSetCount));
+        return applyWarmupLoads(normalizeExercisePrescription({
+          ...exercise,
+          lastWeight: summary.workingWeight,
+          lastReps: summary.representativeReps ?? exercise.lastReps,
+          targetSets,
+          workingSetCount: targetSets,
+          sets: Array.from({ length: targetSets }, (_, index) => ({
+            ...(exercise.sets[index] ?? exercise.sets.at(-1) ?? { reps: exercise.lastReps }),
+            weight: summary.workingWeight,
+            completed: false,
+          })),
+        }), summary.workingWeight);
+      }
       const resized = {
         ...exercise,
         supersetId: performed.supersetId,
@@ -458,14 +665,14 @@ export type WorkoutEditingContext = {
   records?: SessionRecord[];
 };
 
-function knownExercisePerformance(exerciseId: string, context: WorkoutEditingContext): { known?: Exercise; historical?: { exercise: Exercise; best: SetLog } } {
+function knownExercisePerformance(exerciseId: string, context: WorkoutEditingContext): { known?: Exercise; historical?: { exercise: Exercise; best: TrackedSetLog } } {
   const known = context.knownExercises?.find((exercise) => exercise.id === exerciseId);
   const historical = (context.records ?? [])
     .flatMap((record) => record.exercises)
     .filter((exercise) => exercise.id === exerciseId)
     .map((exercise) => ({ exercise, best: bestCompletedWorkingSet(exercise) }))
-    .filter((item): item is { exercise: Exercise; best: SetLog } => Boolean(item.best))
-    .reduce<{ exercise: Exercise; best: SetLog } | undefined>((best, item) => !best || item.best.weight > best.best.weight || (item.best.weight === best.best.weight && item.best.reps > best.best.reps) ? item : best, undefined);
+    .filter((item): item is { exercise: Exercise; best: TrackedSetLog } => Boolean(item.best))
+    .reduce<{ exercise: Exercise; best: TrackedSetLog } | undefined>((best, item) => !best || item.best.weight > best.best.weight || (item.best.weight === best.best.weight && item.best.reps > best.best.reps) ? item : best, undefined);
   return { known, historical };
 }
 
@@ -534,7 +741,7 @@ export function removeWorkoutExercise(workouts: Workout[], workoutId: string, ex
 }
 
 export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string {
-  const completed = workingSets(exercise).filter((set) => set.completed);
+  const completed = workingSets(exercise).filter((set): set is TrackedSetLog => set.completed && hasTrackedReps(set));
   const best = bestCompletedWorkingSet(exercise);
   if (isThreeByThreeExercise(exercise)) return best && best.reps >= 3 ? `Triple conquered at ${displayWeight(best.weight, unit)} ${weightUnitLabel(unit)} total · ${displayExerciseWeight(best.weight, exercise, unit)} ${exerciseWeightLabel(exercise, unit)}. Increase conservatively next time.` : "Complete at least one working set of 3 to conquer this target";
   const requiredSets = exercise.programmedWorkingSets ? exercise.targetSets : Math.min(2, exercise.sets.length);
@@ -626,7 +833,7 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
     const workingStart = workingSetStartIndex(exercise);
     const workingSets = Array.from({ length: workingCount }, (_, index) => {
       const source = exercise.sets[workingStart + index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: 3, completed: false };
-      return { ...source, reps: Math.max(3, source.reps) };
+      return { ...source, reps: Math.max(3, source.reps ?? 3) };
     });
     return applyWarmupLoads({
       ...exercise,
@@ -650,7 +857,7 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
     lastReps: Math.min(maximumReps, Math.max(minimumAllowedReps, exercise.lastReps)),
     sets: Array.from({ length: targetSets }, (_, index) => {
       const source = exercise.sets[index] ?? exercise.sets.at(-1) ?? { weight: exercise.lastWeight, reps: minimumReps, completed: false };
-      return { ...source, reps: Math.min(maximumReps, Math.max(minimumAllowedReps, source.reps)) };
+      return { ...source, reps: Math.min(maximumReps, Math.max(minimumAllowedReps, source.reps ?? minimumReps)) };
     }),
   };
 }

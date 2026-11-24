@@ -40,7 +40,7 @@ describe("adaptive program generator", () => {
     const workouts = generateAdaptiveProgram(4, { ...DEFAULT_COACHING_PROFILE, goal: "muscular-endurance" }, []);
     const isolations = workouts.flatMap((workout) => workout.exercises).filter((exercise) => getExerciseDefinition(exercise.id)?.modality === "isolation");
     expect(isolations.length).toBeGreaterThan(0);
-    expect(isolations.every((exercise) => exercise.repRange[1] === 20 && exercise.sets.every((set) => set.reps <= 20))).toBe(true);
+    expect(isolations.every((exercise) => exercise.repRange[1] === 20 && exercise.sets.every((set) => set.reps !== null && set.reps <= 20))).toBe(true);
   });
 
   it("scales exercise count with requested session length", () => {

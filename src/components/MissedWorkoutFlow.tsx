@@ -189,7 +189,7 @@ function PreviousWorkoutSources({ records, totalRecordCount, search, weightUnit,
         key={record.id}
         eyebrow={formatRecordDate(record)}
         title={record.workoutTitle.split(" · ").pop() ?? record.workoutTitle}
-        detail={`${completedSetCount(record)} completed sets · ${displayWeight(record.volume, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}`}
+        detail={`${completedSetCount(record)} completed sets · ${record.volume === null ? "volume unavailable" : `${displayWeight(record.volume, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}`}`}
         onPress={() => onChoose(record)}
       />
     )) : (

@@ -82,7 +82,7 @@ export function personalBaselineRecords(): SessionRecord[] {
       notes: "Imported baseline from previous training app.",
       workoutTitle: item.title,
       exercises,
-      volume: exercises.reduce((total, exercise) => total + exercise.sets.reduce((sum, set) => sum + set.weight * set.reps, 0), 0),
+      volume: exercises.reduce((total, exercise) => total + exercise.sets.reduce((sum, set) => set.reps === null ? sum : sum + set.weight * set.reps, 0), 0),
     };
   }).reverse();
 }

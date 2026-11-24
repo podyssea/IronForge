@@ -162,7 +162,7 @@ export function insertSessionRecord(records: readonly SessionRecord[], record: V
 function normalizeSet(set: SetLog, exercise: Exercise, setIndex: number): SetLog & { valid: boolean } {
   const weight = Number.isFinite(set.weight) && set.weight >= 0 ? set.weight : 0;
   const minimumReps = Math.min(6, exercise.repRange[0]);
-  const reps = Number.isInteger(set.reps) && set.reps >= minimumReps ? set.reps : minimumReps;
+  const reps = set.reps !== null && Number.isInteger(set.reps) && set.reps >= minimumReps ? set.reps : minimumReps;
   const normalized = { weight, reps, completed: set.completed };
   return { ...normalized, valid: !setValidationError(normalized, exercise, setIndex) };
 }

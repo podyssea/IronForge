@@ -1,11 +1,11 @@
-import { ActiveSession, canonicalExerciseName, Exercise, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { ActiveSession, canonicalExerciseName, Exercise, ExerciseLogFormat, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "../domain/personalBaseline";
 import { TemporaryTrainingPlan } from "../domain/temporaryPlan";
 import { normalizeBackfillRecordMetadata } from "../domain/workoutBackfill";
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 export type AppSettings = { weightUnit: WeightUnit; defaultRestSeconds: number };
 export const DEFAULT_APP_SETTINGS: AppSettings = { weightUnit: "kg", defaultRestSeconds: 90 };
@@ -55,6 +55,7 @@ export type StoredAppStateV12 = Omit<AppState, "previousRoutine"> & { schemaVers
 export type StoredAppStateV13 = AppState & { schemaVersion: 13 };
 export type StoredAppStateV14 = AppState & { schemaVersion: 14 };
 export type StoredAppStateV15 = AppState & { schemaVersion: 15 };
+export type StoredAppStateV16 = AppState & { schemaVersion: 16 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
@@ -120,6 +121,8 @@ export function migrateStoredState(value: unknown): AppState | null {
       return isStoredAppStateV14(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
     case 15:
       return isStoredAppStateV15(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
+    case 16:
+      return isStoredAppStateV16(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
     default:
       console.warn(`GymJournal: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -131,6 +134,10 @@ export function isWorkoutArray(value: unknown): value is Workout[] {
 }
 
 export function isSessionRecordArray(value: unknown): value is SessionRecord[] {
+  return isSessionRecordArrayForSchema(value, true);
+}
+
+function isSessionRecordArrayForSchema(value: unknown, allowSummary: boolean): value is SessionRecord[] {
   return Array.isArray(value) && value.every((record) => isRecord(record)
     && typeof record.id === "string"
     && typeof record.completedAt === "string"
@@ -138,8 +145,9 @@ export function isSessionRecordArray(value: unknown): value is SessionRecord[] {
     && (record.deload === undefined || typeof record.deload === "boolean")
     && (record.readiness === undefined || isReadiness(record.readiness))
     && Array.isArray(record.exercises)
-    && record.exercises.every(isExercise)
-    && isFiniteNumber(record.volume));
+    && isValidLogFormat(record.exerciseLogFormat, allowSummary)
+    && record.exercises.every((exercise) => isExercise(exercise, record.exerciseLogFormat === "exercise-summary-v1"))
+    && isRecordVolume(record));
 }
 
 export function isProgramPreferences(value: unknown): value is LegacyProgramPreferences {
@@ -160,13 +168,13 @@ export function normalizeProgramPreferences(program: LegacyProgramPreferences, r
 }
 
 function isStoredAppStateV1(value: Record<string, unknown>): value is StoredAppStateV1 {
-  return value.schemaVersion === 1 && isWorkoutArray(value.workouts) && isSessionRecordArray(value.records) && isProgramPreferences(value.program);
+  return value.schemaVersion === 1 && isWorkoutArray(value.workouts) && isSessionRecordArrayForSchema(value.records, false) && isProgramPreferences(value.program);
 }
 
 function isStoredAppStateV2(value: Record<string, unknown>): value is StoredAppStateV2 {
   return value.schemaVersion === 2
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || isActiveSession(value.activeSession));
 }
@@ -174,7 +182,7 @@ function isStoredAppStateV2(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV3(value: Record<string, unknown>): value is StoredAppStateV3 {
   return value.schemaVersion === 3
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || isActiveSession(value.activeSession))
     && isCoachingProfile(value.coachingProfile);
@@ -183,7 +191,7 @@ function isStoredAppStateV3(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV4(value: Record<string, unknown>): value is StoredAppStateV4 {
   return value.schemaVersion === 4
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
     && isCoachingProfile(value.coachingProfile);
@@ -192,7 +200,7 @@ function isStoredAppStateV4(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV5(value: Record<string, unknown>): value is StoredAppStateV5 {
   return value.schemaVersion === 5
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
     && isCoachingProfile(value.coachingProfile)
@@ -203,7 +211,7 @@ function isStoredAppStateV5(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV6(value: Record<string, unknown>): value is StoredAppStateV6 {
   return value.schemaVersion === 6
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
     && isCoachingProfile(value.coachingProfile)
@@ -214,7 +222,7 @@ function isStoredAppStateV6(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV7(value: Record<string, unknown>): value is StoredAppStateV7 {
   return value.schemaVersion === 7
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
     && isCoachingProfile(value.coachingProfile)
@@ -225,7 +233,7 @@ function isStoredAppStateV7(value: Record<string, unknown>): value is StoredAppS
 function isStoredAppStateV8(value: Record<string, unknown>): value is StoredAppStateV8 {
   return value.schemaVersion === 8
     && isWorkoutArray(value.workouts)
-    && isSessionRecordArray(value.records)
+    && isSessionRecordArrayForSchema(value.records, false)
     && isProgramPreferences(value.program)
     && (value.activeSession === null || (isActiveSession(value.activeSession) && typeof value.activeSession.notes === "string"))
     && isCoachingProfile(value.coachingProfile)
@@ -283,7 +291,17 @@ function isStoredAppStateV14(value: Record<string, unknown>): value is StoredApp
 
 function isStoredAppStateV15(value: Record<string, unknown>): value is StoredAppStateV15 {
   return value.schemaVersion === 15
+    && value.activeSession !== undefined
+    && (!isRecord(value.activeSession) || value.activeSession.exerciseLogFormat === undefined || value.activeSession.exerciseLogFormat === "legacy-set-v1")
+    && isSessionRecordArrayForSchema(value.records, false)
     && isStoredAppStateV14({ ...value, schemaVersion: 14 });
+}
+
+function isStoredAppStateV16(value: Record<string, unknown>): value is StoredAppStateV16 {
+  return value.schemaVersion === 16
+    && isStoredAppStateV15({ ...value, schemaVersion: 15, records: [], activeSession: null })
+    && isSessionRecordArrayForSchema(value.records, true)
+    && (value.activeSession === null || isActiveSession(value.activeSession, true));
 }
 
 function isCurrentProgramPreferences(value: unknown): value is ProgramPreferences {
@@ -320,11 +338,16 @@ function isCoachingDecision(value: unknown): value is CoachingDecision {
 }
 
 function normalizeRecords(records: SessionRecord[]): SessionRecord[] {
-  return records.map((record) => normalizeBackfillRecordMetadata({ ...record, notes: record.notes ?? "", exercises: normalizeSupersetPairs(record.exercises.map(normalizeExercise)) }));
+  return records.map((record) => normalizeBackfillRecordMetadata({ ...record, exerciseLogFormat: record.exerciseLogFormat ?? "legacy-set-v1", notes: record.notes ?? "", exercises: normalizeSupersetPairs(record.exercises.map(normalizeExercise)) }));
 }
 
 function normalizeActiveSession(session: ActiveSession | null): ActiveSession | null {
-  return session ? { ...session, notes: typeof session.notes === "string" ? session.notes : "", exercises: normalizeSupersetPairs(session.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise)))) } : null;
+  if (!session) return null;
+  const exerciseLogFormat = session.exerciseLogFormat ?? "legacy-set-v1";
+  const exercises = session.exercises.map((exercise) => exerciseLogFormat === "exercise-summary-v1"
+    ? normalizeExercise(exercise)
+    : normalizeExercisePrescription(normalizeExercise(exercise)));
+  return { ...session, exerciseLogFormat, notes: typeof session.notes === "string" ? session.notes : "", exercises: normalizeSupersetPairs(exercises) };
 }
 
 function normalizeWorkouts(workouts: Workout[]): Workout[] {
@@ -395,10 +418,10 @@ function isWorkout(value: unknown): value is Workout {
     && typeof value.title === "string"
     && typeof value.focus === "string"
     && Array.isArray(value.exercises)
-    && value.exercises.every(isExercise);
+    && value.exercises.every((exercise) => isExercise(exercise));
 }
 
-function isExercise(value: unknown): value is Exercise {
+function isExercise(value: unknown, allowUntrackedReps = false): value is Exercise {
   return isRecord(value)
     && typeof value.id === "string"
     && typeof value.name === "string"
@@ -420,12 +443,12 @@ function isExercise(value: unknown): value is Exercise {
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set)
       && isFiniteNumber(set.weight)
-      && isFiniteNumber(set.reps)
+      && (isFiniteNumber(set.reps) || (allowUntrackedReps && set.reps === null))
       && typeof set.completed === "boolean"
     );
 }
 
-function isActiveSession(value: unknown): value is ActiveSession {
+function isActiveSession(value: unknown, allowSummary = false): value is ActiveSession {
   return isRecord(value)
     && typeof value.id === "string"
     && typeof value.workoutId === "string"
@@ -436,8 +459,19 @@ function isActiveSession(value: unknown): value is ActiveSession {
     && (value.readiness === undefined || isReadiness(value.readiness))
     && (value.estimatedDurationMinutes === undefined || isDurationRange(value.estimatedDurationMinutes))
     && (value.strengthPriority === undefined || typeof value.strengthPriority === "string")
+    && isValidLogFormat(value.exerciseLogFormat, allowSummary)
     && Array.isArray(value.exercises)
-    && value.exercises.every(isExercise);
+    && value.exercises.every((exercise) => isExercise(exercise, value.exerciseLogFormat === "exercise-summary-v1"));
+}
+
+function isValidLogFormat(value: unknown, allowSummary: boolean): value is ExerciseLogFormat | undefined {
+  return value === undefined || value === "legacy-set-v1" || (allowSummary && value === "exercise-summary-v1");
+}
+
+function isRecordVolume(record: Record<string, unknown>): boolean {
+  if (record.exerciseLogFormat !== "exercise-summary-v1") return isFiniteNumber(record.volume);
+  const hasUntrackedCompletedReps = (record.exercises as Exercise[]).some((exercise) => exercise.sets.some((set) => set.completed && set.reps === null));
+  return hasUntrackedCompletedReps ? record.volume === null : isFiniteNumber(record.volume);
 }
 
 function isDurationRange(value: unknown): value is [number, number] {

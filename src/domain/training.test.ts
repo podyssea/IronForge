@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addExerciseToWorkoutDraft, addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isSessionComplete, moveWorkoutExercise, progression, removeExerciseFromWorkoutDraft, removeWorkoutExercise, repeatSessionFromRecord, replaceExerciseInWorkoutDraft, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadSession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, workingSets } from "./training";
+import { addExerciseToWorkoutDraft, addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, completeExerciseSummary, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, moveWorkoutExercise, performedExercise, progression, removeExerciseFromWorkoutDraft, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, repeatSessionFromRecord, replaceExerciseInWorkoutDraft, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadExerciseSummarySession, startDeloadSession, startExerciseSummarySession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -103,7 +103,122 @@ describe("set validation and session calculations", () => {
   });
 });
 
+describe("exercise performance contract", () => {
+  it("preserves measured legacy working sets and volume", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    exercise.sets = [
+      { weight: 20, reps: 6, completed: true },
+      { weight: 30, reps: 6, completed: true },
+      { weight: 40, reps: 8, completed: true },
+      { weight: 40, reps: 7, completed: true },
+    ];
+
+    expect(performedExercise(exercise, "legacy-set-v1")).toEqual({
+      kind: "legacy-sets",
+      sets: exercise.sets.slice(2),
+      volume: 600,
+    });
+  });
+
+  it("keeps untracked summary reps distinct from zero and exposes no volume", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    exercise.sets = Array.from({ length: 3 }, () => ({ weight: 80, reps: null, completed: true }));
+
+    expect(performedExercise(exercise, "exercise-summary-v1")).toEqual({
+      kind: "summary",
+      workingWeight: 80,
+      workingSetCount: 3,
+      representativeReps: null,
+    });
+  });
+
+  it("accepts a zero external load for a bodyweight summary", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    exercise.sets = Array.from({ length: 4 }, () => ({ weight: 0, reps: null, completed: true }));
+
+    expect(performedExercise(exercise, "exercise-summary-v1")).toMatchObject({
+      kind: "summary",
+      workingWeight: 0,
+      workingSetCount: 4,
+    });
+  });
+
+  it("rejects summary rows that disagree instead of guessing", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    exercise.sets = [
+      { weight: 80, reps: null, completed: true },
+      { weight: 75, reps: null, completed: true },
+      { weight: 80, reps: 8, completed: true },
+    ];
+
+    expect(performedExercise(exercise, "exercise-summary-v1")).toEqual({
+      kind: "unavailable",
+      reason: "inconsistent-summary",
+    });
+  });
+});
+
 describe("active session lifecycle", () => {
+  it("starts summary logging from the latest valid non-deload performance without copying reps", () => {
+    const workout = initialFourDaySplit()[0];
+    const historicalExercise = {
+      ...workout.exercises[0],
+      sets: Array.from({ length: 3 }, () => ({ weight: 82.5, reps: 7, completed: true })),
+    };
+    const records = [
+      { id: "deload", completedAt: "2026-11-23T10:00:00.000Z", workoutTitle: "Upper", deload: true, exerciseLogFormat: "exercise-summary-v1" as const, exercises: [{ ...historicalExercise, sets: Array.from({ length: 2 }, () => ({ weight: 60, reps: null, completed: true })) }], volume: null },
+      { id: "latest", completedAt: "2026-11-22T10:00:00.000Z", workoutTitle: "Upper", exerciseLogFormat: "exercise-summary-v1" as const, exercises: [historicalExercise], volume: 1_732.5 },
+    ];
+
+    const session = startExerciseSummarySession(workout, records, new Date("2026-11-24T10:00:00.000Z"));
+
+    expect(session.exerciseLogFormat).toBe("exercise-summary-v1");
+    expect(session.exercises[0].sets).toEqual(Array.from({ length: 3 }, () => ({ weight: 82.5, reps: null, completed: false })));
+    expect(session.focusedExerciseId).toBe(workout.exercises[0].id);
+  });
+
+  it("adjusts, completes, advances, and reopens a summary exercise idempotently", () => {
+    const session = startExerciseSummarySession(initialFourDaySplit()[0], []);
+    const firstId = session.exercises[0].id;
+    const secondId = session.exercises[1].id;
+    const adjusted = updateExerciseSummary(session, firstId, { workingWeight: 45, workingSetCount: 4 });
+    const completed = completeExerciseSummary(adjusted, firstId);
+
+    expect(completed.exercises[0].sets).toEqual(Array.from({ length: 4 }, () => ({ weight: 45, reps: null, completed: true })));
+    expect(completed.focusedExerciseId).toBe(secondId);
+    expect(completeExerciseSummary(completed, firstId)).toEqual(completed);
+
+    const reopened = reopenExerciseSummary(completed, firstId);
+    expect(reopened.focusedExerciseId).toBe(firstId);
+    expect(reopened.exercises[0].sets.every((set) => !set.completed)).toBe(true);
+    expect(isExerciseSummarySessionComplete(reopened)).toBe(false);
+  });
+
+  it("finishes summary data without fabricating reps or volume and updates the next default weight", () => {
+    const workout = { ...initialFourDaySplit()[0], exercises: [initialFourDaySplit()[0].exercises[0]] };
+    const session = completeExerciseSummary(updateExerciseSummary(startExerciseSummarySession(workout, []), workout.exercises[0].id, { workingWeight: 50, workingSetCount: 3 }), workout.exercises[0].id);
+    const record = completeActiveSession(session, new Date("2026-11-24T11:00:00.000Z"));
+    const updatedWorkout = applySessionPerformance([workout], session)[0];
+
+    expect(isExerciseSummarySessionComplete(session)).toBe(true);
+    expect(record.volume).toBeNull();
+    expect(record.exercises[0].sets).toEqual(Array.from({ length: 3 }, () => ({ weight: 50, reps: null, completed: true })));
+    expect(updatedWorkout.exercises[0].lastWeight).toBe(50);
+    expect(updatedWorkout.exercises[0].sets.every((set) => set.reps !== null && !set.completed)).toBe(true);
+  });
+
+  it("keeps deloads and repeated workouts in summary focus mode", () => {
+    const workout = { ...initialFourDaySplit()[0], exercises: [initialFourDaySplit()[0].exercises[0]] };
+    const source = completeActiveSession(completeExerciseSummary(startExerciseSummarySession(workout, []), workout.exercises[0].id));
+    const deload = startDeloadExerciseSummarySession(workout, [source]);
+    const repeated = repeatExerciseSummarySession(source, [source], new Date(), [workout]);
+
+    expect(deload).toMatchObject({ exerciseLogFormat: "exercise-summary-v1", deload: true });
+    expect(deload.exercises[0].sets.every((set) => set.reps === null && set.weight === 26.5)).toBe(true);
+    expect(repeated.exerciseLogFormat).toBe("exercise-summary-v1");
+    expect(repeated.exercises[0].sets.every((set) => set.reps === null && !set.completed)).toBe(true);
+  });
+
   it("uses two final working sets for back squat and a six-set deadlift ramp", () => {
     const source = initialFourDaySplit()[0].exercises[0];
     const workout = { id: "strength", title: "Strength", focus: "3x3", exercises: [

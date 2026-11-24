@@ -1,4 +1,4 @@
-import { isWorkingSet, LoadingType, SessionRecord, SetLog } from "./training";
+import { hasTrackedReps, isWorkingSet, LoadingType, SessionRecord, SetLog, TrackedSetLog } from "./training";
 import { calendarDateForRecord, sortSessionRecords } from "./workoutBackfill";
 
 export type AnalyticsRange = 7 | 30 | "all";
@@ -7,11 +7,11 @@ export type ExerciseRecord = { exerciseId: string; exerciseName: string; maxWeig
 export type TrainingAnalytics = {
   sessions: number;
   sets: number;
-  volume: number;
+  volume: number | null;
   warmupSets: number;
   workingSets: number;
-  warmupVolume: number;
-  workingVolume: number;
+  warmupVolume: number | null;
+  workingVolume: number | null;
   durationSeconds: number;
   consistencyPercent: number;
   volumeChangePercent?: number;
@@ -35,17 +35,19 @@ export function recordsInRange(records: SessionRecord[], range: AnalyticsRange, 
 
 export function calculateAnalytics(records: SessionRecord[], range: AnalyticsRange, plannedWeeklySessions: number, now = new Date()): TrainingAnalytics {
   const selected = recordsInRange(records, range, now);
-  const completed = selected.flatMap((record) => record.exercises.flatMap((exercise) => exercise.sets.map((set, index) => ({ set, working: isWorkingSet(exercise, index) })))).filter(({ set }) => set.completed);
+  const completed = selected.flatMap((record) => record.exercises.flatMap((exercise) => exercise.sets.map((set, index) => ({ set, working: record.exerciseLogFormat === "exercise-summary-v1" || isWorkingSet(exercise, index) })))).filter(({ set }) => set.completed);
   const sets = completed.length;
-  const volume = selected.reduce((sum, record) => sum + record.volume, 0);
+  const volume = selected.some((record) => record.volume === null)
+    ? null
+    : selected.reduce((sum, record) => sum + (record.volume ?? 0), 0);
   const warmupSets = completed.filter(({ working }) => !working).length;
   const workingSets = completed.filter(({ working }) => working).length;
-  const warmupVolume = completed.filter(({ working }) => !working).reduce((sum, { set }) => sum + setVolume(set), 0);
-  const workingVolume = completed.filter(({ working }) => working).reduce((sum, { set }) => sum + setVolume(set), 0);
+  const warmupVolume = measuredVolume(completed.filter(({ working }) => !working).map(({ set }) => set));
+  const workingVolume = measuredVolume(completed.filter(({ working }) => working).map(({ set }) => set));
   const durationSeconds = selected.reduce((sum, record) => sum + (record.durationSeconds ?? 0), 0);
   const expected = range === "all" ? selected.length : Math.max(1, plannedWeeklySessions * (range / 7));
   const consistencyPercent = Math.min(100, Math.round(selected.length / expected * 100));
-  const volumeChangePercent = range === "all" ? undefined : comparePriorVolume(records, range, workingVolume, now);
+  const volumeChangePercent = range === "all" || workingVolume === null ? undefined : comparePriorVolume(records, range, workingVolume, now);
   return { sessions: selected.length, sets, volume, warmupSets, workingSets, warmupVolume, workingVolume, durationSeconds, consistencyPercent, volumeChangePercent, coachSummary: coachSummary(selected.length, consistencyPercent, volumeChangePercent) };
 }
 
@@ -54,15 +56,16 @@ function comparePriorVolume(records: SessionRecord[], days: number, currentVolum
   const priorCutoff = currentCutoff - days * 86_400_000;
   const currentCutoffDate = localCalendarDate(new Date(currentCutoff));
   const priorCutoffDate = localCalendarDate(new Date(priorCutoff));
-  const priorVolume = records.filter((record) => {
+  const priorSets = records.filter((record) => {
     if (record.entryMode === "backfill") {
       const date = calendarDateForRecord(record);
       return Boolean(date && date >= priorCutoffDate && date < currentCutoffDate);
     }
     const time = new Date(record.completedAt).getTime();
     return time >= priorCutoff && time < currentCutoff;
-  }).flatMap((record) => record.exercises.flatMap((exercise) => exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index))))
-    .reduce((sum, set) => sum + setVolume(set), 0);
+  }).flatMap((record) => record.exercises.flatMap((exercise) => exercise.sets.filter((set, index) => set.completed && (record.exerciseLogFormat === "exercise-summary-v1" || isWorkingSet(exercise, index)))));
+  const priorVolume = measuredVolume(priorSets);
+  if (priorVolume === null) return undefined;
   return priorVolume ? Math.round((currentVolume - priorVolume) / priorVolume * 100) : undefined;
 }
 
@@ -77,7 +80,7 @@ export function exerciseProgress(records: SessionRecord[], exerciseId: string, r
   return sortSessionRecords(recordsInRange(records, range, now), "oldest-first").flatMap((record) => {
     const exercise = record.exercises.find((item) => item.id === exerciseId);
     if (!exercise) return [];
-    const completed = exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index));
+    const completed = exercise.sets.filter((set, index): set is TrackedSetLog => set.completed && hasTrackedReps(set) && isWorkingSet(exercise, index));
     if (!completed.length) return [];
     const best = completed.reduce((winner, set) => set.weight * set.reps > winner.weight * winner.reps ? set : winner);
     return [{ recordId: record.id, completedAt: record.completedAt, weight: best.weight, reps: best.reps, volume: completed.reduce((sum, set) => sum + set.weight * set.reps, 0), loadingType: exercise.loadingType }];
@@ -87,7 +90,7 @@ export function exerciseProgress(records: SessionRecord[], exerciseId: string, r
 export function personalRecords(records: SessionRecord[]): ExerciseRecord[] {
   const results = new Map<string, ExerciseRecord>();
   sortSessionRecords(records, "oldest-first").forEach((record) => record.exercises.forEach((exercise) => {
-    const completed = exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index));
+    const completed = exercise.sets.filter((set, index): set is TrackedSetLog => set.completed && hasTrackedReps(set) && isWorkingSet(exercise, index));
     if (!completed.length) return;
     const prior = results.get(exercise.id);
     const maxWeight = Math.max(...completed.map((set) => set.weight), prior?.maxWeight ?? 0);
@@ -103,5 +106,9 @@ function localCalendarDate(value: Date): string {
 }
 
 function setVolume(set: SetLog): number {
-  return set.weight * set.reps;
+  return hasTrackedReps(set) ? set.weight * set.reps : 0;
+}
+
+function measuredVolume(sets: SetLog[]): number | null {
+  return sets.some((set) => !hasTrackedReps(set)) ? null : sets.reduce((sum, set) => sum + setVolume(set), 0);
 }

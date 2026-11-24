@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { completeActiveSession, initialFourDaySplit, startActiveSession, toggleWorkoutSuperset } from "../domain/training";
-import { DEFAULT_APP_SETTINGS, migrateStoredState } from "./migrations";
+import { CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, migrateStoredState } from "./migrations";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 
 const program = { trainingDays: 4, phase: "hypertrophy" as const };
@@ -202,6 +202,62 @@ describe("storage migrations", () => {
     expect(migrated?.records).toHaveLength(1);
     expect(migrated?.records[0]).not.toHaveProperty("entryMode");
     expect(migrated?.records[0]).not.toHaveProperty("performedOn");
+  });
+
+  it("migrates version 15 sessions and records as explicit legacy set logs", () => {
+    const workouts = initialFourDaySplit();
+    const activeSession = startActiveSession(workouts[0], new Date("2026-11-21T10:00:00.000Z"));
+    const record = completeActiveSession(activeSession, new Date("2026-11-21T11:00:00.000Z"));
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+
+    const migrated = migrateStoredState({ schemaVersion: 15, workouts, records: [record], program: currentProgram, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
+
+    expect(CURRENT_SCHEMA_VERSION).toBe(16);
+    expect(migrated?.activeSession?.exerciseLogFormat).toBe("legacy-set-v1");
+    expect(migrated?.records[0].exerciseLogFormat).toBe("legacy-set-v1");
+    expect(migrated?.records[0].exercises).toEqual(record.exercises);
+  });
+
+  it("round-trips version 16 summary sessions and records with deliberately untracked reps", () => {
+    const workouts = initialFourDaySplit();
+    const activeSession = {
+      ...startActiveSession(workouts[0], new Date("2026-11-22T10:00:00.000Z")),
+      exerciseLogFormat: "exercise-summary-v1" as const,
+    };
+    activeSession.exercises[0] = {
+      ...activeSession.exercises[0],
+      sets: Array.from({ length: 3 }, () => ({ weight: 80, reps: null, completed: true })),
+    };
+    const record = {
+      ...completeActiveSession(startActiveSession(workouts[0]), new Date("2026-11-22T11:00:00.000Z")),
+      exerciseLogFormat: "exercise-summary-v1" as const,
+      exercises: activeSession.exercises,
+      volume: null,
+    };
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+
+    const migrated = migrateStoredState({ schemaVersion: 16, workouts, records: [record], program: currentProgram, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
+
+    expect(migrated?.activeSession).toEqual(activeSession);
+    expect(migrated?.records[0]).toMatchObject({ exerciseLogFormat: "exercise-summary-v1", volume: null });
+    expect(migrated?.records[0].exercises[0].sets).toEqual(activeSession.exercises[0].sets);
+  });
+
+  it("rejects untracked reps when summary format is not explicit", () => {
+    const workouts = initialFourDaySplit();
+    const activeSession = startActiveSession(workouts[0]);
+    activeSession.exercises[0].sets[0].reps = null;
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+
+    expect(migrateStoredState({ schemaVersion: 16, workouts, records: [], program: currentProgram, activeSession, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null })).toBeNull();
+  });
+
+  it("rejects nullable reps in workout templates even when a summary session exists", () => {
+    const workouts = initialFourDaySplit();
+    workouts[0].exercises[0].sets[0].reps = null;
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+
+    expect(migrateStoredState({ schemaVersion: 16, workouts, records: [], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null })).toBeNull();
   });
 
   it("rejects malformed state", () => {

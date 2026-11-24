@@ -32,7 +32,7 @@ function Overview({ analytics, weightUnit }: { analytics: ReturnType<typeof calc
   return <><View style={styles.coach}><Text style={styles.coachLabel}>COACH INSIGHT</Text><Text style={styles.coachText}>{analytics.coachSummary}</Text></View><View style={styles.grid}>
     <Metric value={String(analytics.sessions)} label="WORKOUTS" /><Metric value={String(analytics.sets)} label="SETS" />
     <Metric value={String(analytics.workingSets)} label="WORKING SETS" /><Metric value={`${analytics.consistencyPercent}%`} label="CONSISTENCY" />
-    <Metric value={displayWeight(analytics.workingVolume, weightUnit).toLocaleString()} label={`WORK ${weightUnitLabel(weightUnit).toUpperCase()}·REP`} /><Metric value={displayWeight(analytics.warmupVolume, weightUnit).toLocaleString()} label={`WARM-UP ${weightUnitLabel(weightUnit).toUpperCase()}·REP`} />
+    <Metric value={analytics.workingVolume === null ? "UNAVAILABLE" : displayWeight(analytics.workingVolume, weightUnit).toLocaleString()} label={`WORK ${weightUnitLabel(weightUnit).toUpperCase()}·REP`} /><Metric value={analytics.warmupVolume === null ? "UNAVAILABLE" : displayWeight(analytics.warmupVolume, weightUnit).toLocaleString()} label={`WARM-UP ${weightUnitLabel(weightUnit).toUpperCase()}·REP`} />
   </View>{analytics.volumeChangePercent !== undefined && <Text style={styles.change}>Working volume is {Math.abs(analytics.volumeChangePercent)}% {analytics.volumeChangePercent >= 0 ? "higher" : "lower"} than the previous period.</Text>}</>;
 }
 

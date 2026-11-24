@@ -1,12 +1,12 @@
-import { Exercise, SessionRecord, SetLog } from "./training";
+import { Exercise, hasTrackedReps, SessionRecord, SetLog, TrackedSetLog } from "./training";
 import { calendarDateForRecord, sortSessionRecords } from "./workoutBackfill";
 
 export type ExerciseComparison = {
   exerciseId: string;
   previousFound: boolean;
   weightChange: number;
-  repChange: number;
-  volumeChange: number;
+  repChange: number | null;
+  volumeChange: number | null;
 };
 
 export function compareSessionExercises(record: SessionRecord, records: SessionRecord[]): Map<string, ExerciseComparison> {
@@ -14,21 +14,27 @@ export function compareSessionExercises(record: SessionRecord, records: SessionR
   const recordIndex = chronological.findIndex((item) => item.id === record.id);
   const olderRecords = recordIndex >= 0 ? chronological.slice(recordIndex + 1) : chronological;
   return new Map(record.exercises.map((exercise) => {
-    const previous = olderRecords.flatMap((item) => item.exercises).find((item) => item.id === exercise.id && item.sets.some(isCompletedValidSet));
+    const previous = olderRecords.flatMap((item) => item.exercises).find((item) => item.id === exercise.id && item.sets.some(isCompletedSet));
     const currentLatest = latestCompletedSet(exercise);
     const previousLatest = previous ? latestCompletedSet(previous) : undefined;
+    const currentTracked = latestTrackedCompletedSet(exercise);
+    const previousTracked = previous ? latestTrackedCompletedSet(previous) : undefined;
+    const currentVolume = exerciseVolume(exercise);
+    const previousVolume = previous ? exerciseVolume(previous) : null;
     return [exercise.id, {
       exerciseId: exercise.id,
       previousFound: Boolean(previous && previousLatest),
       weightChange: (currentLatest?.weight ?? 0) - (previousLatest?.weight ?? 0),
-      repChange: (currentLatest?.reps ?? 0) - (previousLatest?.reps ?? 0),
-      volumeChange: exerciseVolume(exercise) - (previous ? exerciseVolume(previous) : 0),
+      repChange: currentTracked && previousTracked ? currentTracked.reps - previousTracked.reps : null,
+      volumeChange: currentVolume !== null && previousVolume !== null ? currentVolume - previousVolume : null,
     }];
   }));
 }
 
-export function exerciseVolume(exercise: Exercise): number {
-  return exercise.sets.filter(isCompletedValidSet).reduce((total, set) => total + set.weight * set.reps, 0);
+export function exerciseVolume(exercise: Exercise): number | null {
+  const completed = exercise.sets.filter(isCompletedSet);
+  if (completed.some((set) => !hasTrackedReps(set))) return null;
+  return completed.filter(isCompletedValidSet).reduce((total, set) => total + set.weight * set.reps, 0);
 }
 
 export function formatDuration(seconds?: number): string {
@@ -101,10 +107,19 @@ function startOfWeek(value: Date): Date {
 }
 
 function latestCompletedSet(exercise: Exercise): SetLog | undefined {
+  const completed = exercise.sets.filter(isCompletedSet);
+  return completed[completed.length - 1];
+}
+
+function latestTrackedCompletedSet(exercise: Exercise): TrackedSetLog | undefined {
   const completed = exercise.sets.filter(isCompletedValidSet);
   return completed[completed.length - 1];
 }
 
-function isCompletedValidSet(set: SetLog): boolean {
-  return set.completed && set.weight >= 0 && Number.isInteger(set.reps) && set.reps > 0;
+function isCompletedSet(set: SetLog): boolean {
+  return set.completed && Number.isFinite(set.weight) && set.weight >= 0;
+}
+
+function isCompletedValidSet(set: SetLog): set is TrackedSetLog {
+  return set.completed && set.weight >= 0 && hasTrackedReps(set) && Number.isInteger(set.reps) && set.reps > 0;
 }

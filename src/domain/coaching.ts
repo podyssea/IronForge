@@ -1,6 +1,6 @@
 import { Equipment, ExperienceLevel, TrainingStyle } from "./exerciseLibrary";
 import { TrainingSplit } from "./programGenerator";
-import { applyWorkingLoadPreservingWarmups, Exercise, loadIncrement, roundExerciseLoad, SessionRecord, workingSets, Workout } from "./training";
+import { applyWorkingLoadPreservingWarmups, Exercise, hasTrackedReps, loadIncrement, roundExerciseLoad, SessionRecord, TrackedSetLog, workingSets, Workout } from "./training";
 
 export type CoachingProfile = {
   goal: TrainingStyle;
@@ -72,7 +72,7 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
   const latestRecord = performances[0].record;
   const recent = performances.slice(0, 2);
   const successful = recent.length === 2 && recent.every(({ exercise: performed }) => {
-    const completed = workingSets(performed).filter((set) => set.completed);
+    const completed = workingSets(performed).filter((set): set is TrackedSetLog => set.completed && hasTrackedReps(set));
     return completed.length === Math.min(2, performed.sets.length) && completed.every((set) => set.reps >= exercise.repRange[1]);
   });
   const repeatedlyIncomplete = recent.length === 2 && recent.every(({ exercise: performed }) => workingSets(performed).filter((set) => set.completed).length < Math.min(2, performed.sets.length));
@@ -105,7 +105,7 @@ function recommendExercise(workoutId: string, exercise: Exercise, performances: 
 }
 
 function averageReps(exercise: Exercise): number {
-  const completed = workingSets(exercise).filter((set) => set.completed);
+  const completed = workingSets(exercise).filter((set): set is TrackedSetLog => set.completed && hasTrackedReps(set));
   return completed.length ? completed.reduce((sum, set) => sum + set.reps, 0) / completed.length : 0;
 }
 

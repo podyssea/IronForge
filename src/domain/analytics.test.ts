@@ -20,8 +20,23 @@ describe("training analytics", () => {
     expect(analytics.volume).toBe(31525);
     expect(analytics.workingSets).toBe(26);
     expect(analytics.warmupSets).toBe(20);
-    expect(analytics.workingVolume).toBeLessThan(analytics.volume);
+    expect(analytics.volume).not.toBeNull();
+    expect(analytics.workingVolume).toBeLessThan(analytics.volume ?? 0);
     expect(analytics.consistencyPercent).toBe(50);
+  });
+
+  it("marks summary working volume unavailable while counting every summary row as working", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    const record = {
+      id: "summary",
+      completedAt: "2026-07-22T10:00:00.000Z",
+      workoutTitle: "Upper",
+      exerciseLogFormat: "exercise-summary-v1" as const,
+      exercises: [{ ...exercise, sets: Array.from({ length: 3 }, () => ({ weight: 80, reps: null, completed: true })) }],
+      volume: null,
+    };
+
+    expect(calculateAnalytics([record], "all", 4, now)).toMatchObject({ sets: 3, workingSets: 3, warmupSets: 0, volume: null, workingVolume: null, warmupVolume: 0 });
   });
 
   it("builds chronological exercise progress points", () => {

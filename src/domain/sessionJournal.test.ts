@@ -24,6 +24,17 @@ describe("workout journal", () => {
     expect(exerciseVolume(record.exercises[0])).toBe(320);
   });
 
+  it("keeps volume and rep comparisons unavailable when reps were not tracked", () => {
+    const exercise = initialFourDaySplit()[0].exercises[0];
+    const current = { ...exercise, sets: Array.from({ length: 3 }, () => ({ weight: 80, reps: null, completed: true })) };
+    const previous = { ...exercise, sets: Array.from({ length: 3 }, () => ({ weight: 75, reps: null, completed: true })) };
+    const newer = { id: "newer-summary", completedAt: "2026-01-08T10:00:00.000Z", workoutTitle: "Upper", exerciseLogFormat: "exercise-summary-v1" as const, exercises: [current], volume: null };
+    const older = { id: "older-summary", completedAt: "2026-01-01T10:00:00.000Z", workoutTitle: "Upper", exerciseLogFormat: "exercise-summary-v1" as const, exercises: [previous], volume: null };
+
+    expect(exerciseVolume(current)).toBeNull();
+    expect(compareSessionExercises(newer, [newer, older]).get(exercise.id)).toMatchObject({ previousFound: true, weightChange: 5, repChange: null, volumeChange: null });
+  });
+
   it("compares performance with the preceding matching session", () => {
     const older = completedRecord(40, 8, "2026-01-01T10:00:00.000Z", "2026-01-01T11:00:00.000Z");
     const newer = completedRecord(42.5, 9, "2026-01-08T10:00:00.000Z", "2026-01-08T11:00:00.000Z");

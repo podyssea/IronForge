@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { displayWeight, SetLog, WeightUnit, weightUnitLabel } from "../domain/training";
+import { displayWeight, hasTrackedReps, SetLog, WeightUnit, weightUnitLabel } from "../domain/training";
 import { BackfillSetPatch, WorkoutBackfillDraft } from "../domain/workoutBackfill";
 import { BackfillExerciseCard } from "./BackfillExerciseCard";
 
@@ -22,7 +22,7 @@ export function MissedWorkoutEditor({ draft, weightUnit, isSaving, errorMessage,
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const totals = useMemo(() => draft.exercises.reduce((result, exercise) => ({
     sets: result.sets + exercise.sets.filter((set) => set.completed).length,
-    volume: result.volume + exercise.sets.filter((set) => set.completed).reduce((sum, set) => sum + set.weight * set.reps, 0),
+    volume: result.volume + exercise.sets.filter((set) => set.completed && hasTrackedReps(set)).reduce((sum, set) => sum + set.weight * (set.reps ?? 0), 0),
   }), { sets: 0, volume: 0 }), [draft.exercises]);
   const formattedDate = formatCalendarDate(draft.performedOn);
   const sourceDescription = draft.source.type === "planned" ? "Copied from your current plan" : "Copied from workout history";
