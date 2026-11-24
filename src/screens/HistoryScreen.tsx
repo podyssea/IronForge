@@ -1,10 +1,19 @@
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AccessibilityInfo, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { MissedWorkoutFlow } from "../components/MissedWorkoutFlow";
 import { compareSessionExercises, exerciseVolume, formatDuration, groupRecordsByWeek } from "../domain/sessionJournal";
-import { displayExerciseWeight, displayWeight, exerciseWeightLabel, Exercise, isWorkingSet, SessionRecord, WeightUnit, weightUnitLabel } from "../domain/training";
+import { displayExerciseWeight, displayWeight, exerciseWeightLabel, Exercise, isWorkingSet, SessionRecord, WeightUnit, weightUnitLabel, Workout } from "../domain/training";
+import { calendarDateForRecord, SaveBackfill } from "../domain/workoutBackfill";
 
 type HistoryScreenProps = {
   records: SessionRecord[];
+  workouts: Workout[];
+  activeSessionExists: boolean;
+  storageError: string | null;
+  onSaveBackfill: SaveBackfill;
+  onBackfillStateChange: (state: { active: boolean; dirty: boolean }) => void;
+  onRequestScrollTop: () => void;
+  onReturnToActiveWorkout: () => void;
   onUpdateNotes: (recordId: string, notes: string) => void;
   onUpdateExerciseName: (recordId: string, exerciseId: string, name: string) => void;
   onDelete: (recordId: string) => void;
@@ -12,17 +21,20 @@ type HistoryScreenProps = {
   onRepeat: (record: SessionRecord, deload?: boolean) => void;
 };
 
-export function HistoryScreen({ records, onUpdateNotes, onUpdateExerciseName, onDelete, weightUnit, onRepeat }: HistoryScreenProps) {
+export function HistoryScreen({ records, workouts, activeSessionExists, storageError, onSaveBackfill, onBackfillStateChange, onRequestScrollTop, onReturnToActiveWorkout, onUpdateNotes, onUpdateExerciseName, onDelete, weightUnit, onRepeat }: HistoryScreenProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [backfillOpen, setBackfillOpen] = useState(false);
   const selected = records.find((record) => record.id === selectedId);
   const confirmDelete = (recordId: string, afterDelete?: () => void) => Alert.alert("Delete workout?", "This removes the session from your journal and totals. Current program loads will not be changed.", [{ text: "Keep session", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => { onDelete(recordId); afterDelete?.(); } }]);
   if (selected) return <SessionDetail record={selected} records={records} weightUnit={weightUnit} onBack={() => setSelectedId(null)} onRepeat={() => onRepeat(selected)} onRepeatDeload={() => onRepeat(selected, true)} onNotes={(notes) => onUpdateNotes(selected.id, notes)} onExerciseName={(exerciseId, name) => onUpdateExerciseName(selected.id, exerciseId, name)} onDelete={() => confirmDelete(selected.id, () => setSelectedId(null))} />;
+  if (backfillOpen) return <MissedWorkoutFlow workouts={workouts} records={records} weightUnit={weightUnit} storageError={storageError} onSave={onSaveBackfill} onDirtyChange={(dirty) => onBackfillStateChange({ active: true, dirty })} onRequestScrollTop={onRequestScrollTop} onReturnToActiveWorkout={onReturnToActiveWorkout} onSaved={(_recordId, performedOn, completedSets) => { setBackfillOpen(false); onBackfillStateChange({ active: false, dirty: false }); AccessibilityInfo.announceForAccessibility(`Workout saved for ${performedOn}, ${completedSets} sets logged`); }} onCancel={() => { setBackfillOpen(false); onBackfillStateChange({ active: false, dirty: false }); onRequestScrollTop(); }} />;
 
   const weeklyGroups = groupRecordsByWeek(records);
-  return <><Text style={styles.kicker}>WORKOUT JOURNAL</Text><Text style={styles.title}>History</Text>
+  return <><Text style={styles.kicker}>WORKOUT JOURNAL</Text><Text accessibilityRole="header" style={styles.title}>History</Text>
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled: activeSessionExists }} accessibilityLabel="Log missed workout" accessibilityHint="Choose a past date and copy a planned or previous workout" disabled={activeSessionExists} onPress={() => { setBackfillOpen(true); onBackfillStateChange({ active: true, dirty: false }); onRequestScrollTop(); }} style={[styles.backfillEntry, activeSessionExists && styles.backfillEntryDisabled]}><View style={styles.backfillCopy}><Text style={styles.backfillTitle}>＋ LOG MISSED WORKOUT</Text><Text style={styles.backfillText}>{activeSessionExists ? "Finish the active workout before adding a missed one" : "Add every set on a past date"}</Text></View><Text style={styles.backfillArrow}>→</Text></Pressable>
     {records.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No workouts saved yet</Text><Text style={styles.emptyText}>Finish a workout and it will appear here with every set, your notes, and performance changes.</Text></View> : <>
       <View style={styles.historyStat}><Text style={styles.historyNumber}>{records.length}</Text><Text style={styles.historyLabel}>WORKOUTS COMPLETED</Text><Text style={styles.historyVolume}>{displayWeight(records.reduce((sum, record) => sum + record.volume, 0), weightUnit).toLocaleString()} {weightUnitLabel(weightUnit)} total volume</Text></View>
-      {weeklyGroups.map((group) => <View key={group.key}><Text style={styles.sectionLabel}>{group.label}</Text>{group.records.map((record) => <View key={record.id} style={styles.historyCard}><Pressable onPress={() => setSelectedId(record.id)} style={styles.historyOpenArea}><View style={styles.cardCopy}><Text style={styles.historyTitle}>{record.workoutTitle.split(" · ").pop()}</Text>{record.deload ? <Text style={styles.deloadTag}>DELOAD · 75%</Text> : null}<Text style={styles.historyDate}>{formatDate(record.completedAt)} · {record.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).length} exercises</Text>{record.notes ? <Text numberOfLines={1} style={styles.notePreview}>{record.notes}</Text> : null}</View><View style={styles.cardRight}><Text style={styles.cardVolume}>{displayWeight(record.volume, weightUnit).toLocaleString()}<Text style={styles.cardUnit}> {weightUnitLabel(weightUnit)}</Text></Text><Text style={styles.open}>OPEN →</Text></View></Pressable><Pressable accessibilityLabel={`Delete ${record.workoutTitle}`} onPress={() => confirmDelete(record.id)} style={styles.quickDelete}><Text style={styles.quickDeleteText}>DELETE</Text></Pressable></View>)}</View>)}</>}
+      {weeklyGroups.map((group) => <View key={group.key}><Text style={styles.sectionLabel}>{group.label}</Text>{group.records.map((record) => <View key={record.id} style={styles.historyCard}><Pressable onPress={() => setSelectedId(record.id)} style={styles.historyOpenArea}><View style={styles.cardCopy}><Text style={styles.historyTitle}>{record.workoutTitle.split(" · ").pop()}</Text>{record.deload ? <Text style={styles.deloadTag}>DELOAD · 75%</Text> : null}{record.entryMode === "backfill" ? <Text style={styles.backfillTag}>PAST ENTRY</Text> : null}<Text style={styles.historyDate}>{formatRecordDate(record)} · {record.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).length} exercises</Text>{record.notes ? <Text numberOfLines={1} style={styles.notePreview}>{record.notes}</Text> : null}</View><View style={styles.cardRight}><Text style={styles.cardVolume}>{displayWeight(record.volume, weightUnit).toLocaleString()}<Text style={styles.cardUnit}> {weightUnitLabel(weightUnit)}</Text></Text><Text style={styles.open}>OPEN →</Text></View></Pressable><Pressable accessibilityLabel={`Delete ${record.workoutTitle}`} onPress={() => confirmDelete(record.id)} style={styles.quickDelete}><Text style={styles.quickDeleteText}>DELETE</Text></Pressable></View>)}</View>)}</>}
   </>;
 }
 
@@ -32,7 +44,7 @@ function SessionDetail({ record, records, weightUnit, onBack, onRepeat, onRepeat
   const comparisons = compareSessionExercises(record, records);
   const completedSets = record.exercises.reduce((total, exercise) => total + exercise.sets.filter((set) => set.completed).length, 0);
   const totalSets = record.exercises.reduce((total, exercise) => total + exercise.sets.length, 0);
-  return <><Pressable onPress={onBack} style={styles.back}><Text style={styles.backText}>← BACK TO HISTORY</Text></Pressable><Text style={styles.kicker}>JOURNAL ENTRY</Text><Text style={styles.title}>{record.workoutTitle.split(" · ").pop()}</Text>{record.deload ? <Text style={styles.deloadTag}>DELOAD · 75%</Text> : null}<Text style={styles.detailDate}>{formatDate(record.completedAt)} · {record.startedAt ? `${formatTime(record.startedAt)}–${formatTime(record.completedAt)}` : formatTime(record.completedAt)}</Text>
+  return <><Pressable onPress={onBack} style={styles.back}><Text style={styles.backText}>← BACK TO HISTORY</Text></Pressable><Text style={styles.kicker}>JOURNAL ENTRY</Text><Text style={styles.title}>{record.workoutTitle.split(" · ").pop()}</Text>{record.deload ? <Text style={styles.deloadTag}>DELOAD · 75%</Text> : null}{record.entryMode === "backfill" ? <Text style={styles.backfillTag}>PAST ENTRY</Text> : null}<Text style={styles.detailDate}>{formatRecordDate(record)} · {record.entryMode === "backfill" ? "Time unavailable" : record.startedAt ? `${formatTime(record.startedAt)}–${formatTime(record.completedAt)}` : formatTime(record.completedAt)}</Text>
     <View style={styles.detailStats}><Stat value={`${completedSets}/${totalSets}`} label="SETS" /><Stat value={`${displayWeight(record.volume, weightUnit).toLocaleString()} ${weightUnitLabel(weightUnit)}`} label="VOLUME" /><Stat value={formatDuration(record.durationSeconds)} label="DURATION" /></View>
     <Pressable onPress={onRepeat} style={styles.repeat}><Text style={styles.repeatText}>↻ REPEAT THIS WORKOUT</Text></Pressable>
     <Pressable onPress={onRepeatDeload} style={styles.repeatDeload}><Text style={styles.repeatDeloadText}>DELOAD REPEAT · 75%</Text></Pressable>
@@ -53,15 +65,18 @@ function comparisonText(weight: number, reps: number, volume: number, exercise: 
 
 function signed(value: number): string { return value > 0 ? `+${value}` : String(value); }
 function formatDate(value: string): string { return new Date(value).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); }
+function formatRecordDate(record: SessionRecord): string { const value = calendarDateForRecord(record); if (!value) return "Date unavailable"; const [year, month, day] = value.split("-").map(Number); return new Date(year, month - 1, day).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }); }
 function formatTime(value: string): string { return new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); }
 
 const styles = StyleSheet.create({
   kicker: { color: "#8d958c", fontSize: 10, fontWeight: "800", letterSpacing: 1.5, marginTop: 30 }, title: { color: "#f8faf5", fontSize: 34, fontWeight: "800", marginTop: 4 },
+  backfillEntry: { minHeight: 58, borderRadius: 9, borderWidth: 1, borderColor: "#d8ff38", paddingHorizontal: 14, paddingVertical: 10, marginTop: 16, flexDirection: "row", alignItems: "center" }, backfillEntryDisabled: { opacity: .42, borderColor: "#667063" }, backfillCopy: { flex: 1, paddingRight: 8 }, backfillTitle: { color: "#d8ff38", fontSize: 10, fontWeight: "900", letterSpacing: .8 }, backfillText: { color: "#aab3a7", fontSize: 10, lineHeight: 15, marginTop: 4 }, backfillArrow: { color: "#d8ff38", fontSize: 20, fontWeight: "900" },
   empty: { backgroundColor: "#1a1f1a", borderRadius: 10, padding: 22, marginTop: 20 }, emptyTitle: { color: "#f4f6f1", fontSize: 17, fontWeight: "800" }, emptyText: { color: "#8d958b", fontSize: 12, lineHeight: 18, marginTop: 8 },
   historyStat: { backgroundColor: "#1a1f1a", borderRadius: 10, marginTop: 18, padding: 18 }, historyNumber: { color: "#d8ff38", fontSize: 34, fontWeight: "900" }, historyLabel: { color: "#7d857c", fontSize: 9, fontWeight: "900", letterSpacing: 1, marginTop: 3 }, historyVolume: { color: "#dce1db", fontSize: 13, fontWeight: "700", marginTop: 14 },
   sectionLabel: { color: "#90988e", fontSize: 10, fontWeight: "900", letterSpacing: 1.2, marginTop: 26, marginBottom: 8 },
   historyCard: { backgroundColor: "#1a1f1a", borderRadius: 9, marginTop: 8, overflow: "hidden" }, historyOpenArea: { padding: 15, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, cardCopy: { flex: 1, paddingRight: 10 }, historyTitle: { color: "#eff2ed", fontSize: 15, fontWeight: "800" }, historyDate: { color: "#858d83", fontSize: 11, marginTop: 5 }, notePreview: { color: "#aab3a7", fontSize: 10, fontStyle: "italic", marginTop: 6 }, cardRight: { alignItems: "flex-end" }, cardVolume: { color: "#d8ff38", fontSize: 17, fontWeight: "900" }, cardUnit: { color: "#9da59b", fontSize: 10 }, open: { color: "#818a7f", fontSize: 8, fontWeight: "900", marginTop: 7 }, quickDelete: { borderTopWidth: 1, borderTopColor: "#342e2b", minHeight: 36, alignItems: "center", justifyContent: "center" }, quickDeleteText: { color: "#d78073", fontSize: 8, fontWeight: "900", letterSpacing: .8 },
   deloadTag: { alignSelf: "flex-start", color: "#15190f", backgroundColor: "#d8ff38", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: "900", letterSpacing: .7, marginTop: 7 },
+  backfillTag: { alignSelf: "flex-start", color: "#d8ff38", borderColor: "#6d7d31", borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, fontSize: 8, fontWeight: "900", letterSpacing: .7, marginTop: 7 },
   back: { alignSelf: "flex-start", marginTop: 22, paddingVertical: 6 }, backText: { color: "#d8ff38", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, detailDate: { color: "#91998f", fontSize: 11, marginTop: 7 },
   detailStats: { flexDirection: "row", gap: 7, marginTop: 17 }, stat: { flex: 1, backgroundColor: "#1a1f1a", borderRadius: 8, paddingVertical: 13, paddingHorizontal: 8 }, statValue: { color: "#f0f3ed", fontSize: 13, fontWeight: "900" }, statLabel: { color: "#788176", fontSize: 8, fontWeight: "900", marginTop: 4 },
   notes: { backgroundColor: "#1a1f1a", borderRadius: 9, padding: 14, marginTop: 14 }, notesLabel: { color: "#90988e", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, notesInput: { color: "#eef1eb", fontSize: 12, lineHeight: 18, minHeight: 58, textAlignVertical: "top", marginTop: 7 },

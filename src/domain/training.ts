@@ -1,4 +1,5 @@
 export type WeightUnit = "kg" | "lb";
+export type CalendarDate = string & { readonly __brand: "CalendarDate" };
 export type SetLog = { weight: number; reps: number; completed: boolean };
 export type LoadingType = "pin-loaded" | "plate-loaded";
 export type ReadinessCheckIn = { energy: number; sleep: number; soreness: number };
@@ -30,7 +31,7 @@ export type Exercise = {
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[]; estimatedDurationMinutes?: [number, number]; strengthPriority?: string };
-export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
+export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: string; completedAt: string; performedOn?: CalendarDate; entryMode?: "backfill"; durationSeconds?: number; notes?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; workoutTitle: string; exercises: Exercise[]; volume: number };
 export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; estimatedDurationMinutes?: [number, number]; strengthPriority?: string; exercises: Exercise[] };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;

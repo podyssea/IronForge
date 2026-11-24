@@ -3,8 +3,9 @@ import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "../domain/personalBaseline";
 import { TemporaryTrainingPlan } from "../domain/temporaryPlan";
+import { normalizeBackfillRecordMetadata } from "../domain/workoutBackfill";
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 export type AppSettings = { weightUnit: WeightUnit; defaultRestSeconds: number };
 export const DEFAULT_APP_SETTINGS: AppSettings = { weightUnit: "kg", defaultRestSeconds: 90 };
@@ -53,6 +54,7 @@ export type StoredAppStateV11 = Omit<AppState, "temporaryPlans" | "previousRouti
 export type StoredAppStateV12 = Omit<AppState, "previousRoutine"> & { schemaVersion: 12 };
 export type StoredAppStateV13 = AppState & { schemaVersion: 13 };
 export type StoredAppStateV14 = AppState & { schemaVersion: 14 };
+export type StoredAppStateV15 = AppState & { schemaVersion: 15 };
 
 export function migrateStoredState(value: unknown): AppState | null {
   if (!isRecord(value) || typeof value.schemaVersion !== "number") return null;
@@ -116,6 +118,8 @@ export function migrateStoredState(value: unknown): AppState | null {
       };
     case 14:
       return isStoredAppStateV14(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
+    case 15:
+      return isStoredAppStateV15(value) ? { workouts: normalizeWorkouts(value.workouts), records: normalizeRecords(value.records), program: value.program, activeSession: normalizeActiveSession(value.activeSession), coachingProfile: value.coachingProfile, coachingDecisions: value.coachingDecisions, settings: value.settings, temporaryPlans: value.temporaryPlans.map((plan) => ({ ...plan, workouts: normalizeWorkouts(plan.workouts) })), previousRoutine: value.previousRoutine ? { ...value.previousRoutine, workouts: normalizeWorkouts(value.previousRoutine.workouts) } : null } : null;
     default:
       console.warn(`GymJournal: unsupported storage schema version ${value.schemaVersion}.`);
       return null;
@@ -277,6 +281,11 @@ function isStoredAppStateV14(value: Record<string, unknown>): value is StoredApp
     && isStoredAppStateV13({ ...value, schemaVersion: 13 });
 }
 
+function isStoredAppStateV15(value: Record<string, unknown>): value is StoredAppStateV15 {
+  return value.schemaVersion === 15
+    && isStoredAppStateV14({ ...value, schemaVersion: 14 });
+}
+
 function isCurrentProgramPreferences(value: unknown): value is ProgramPreferences {
   if (!isRecord(value)) return false;
   const routineStartedAt = value.routineStartedAt;
@@ -311,7 +320,7 @@ function isCoachingDecision(value: unknown): value is CoachingDecision {
 }
 
 function normalizeRecords(records: SessionRecord[]): SessionRecord[] {
-  return records.map((record) => ({ ...record, notes: record.notes ?? "", exercises: normalizeSupersetPairs(record.exercises.map(normalizeExercise)) }));
+  return records.map((record) => normalizeBackfillRecordMetadata({ ...record, notes: record.notes ?? "", exercises: normalizeSupersetPairs(record.exercises.map(normalizeExercise)) }));
 }
 
 function normalizeActiveSession(session: ActiveSession | null): ActiveSession | null {

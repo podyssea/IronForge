@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createWorkoutBackfillDraft, finalizeWorkoutBackfill, parsePastCalendarDate } from "../domain/workoutBackfill";
 import { createDefaultAppState } from "./appStorage";
 import { createBackupJson, restoreBackupJson } from "./backup";
 
@@ -20,6 +21,22 @@ describe("offline backup", () => {
   it("rejects malformed and unrelated files", () => {
     expect(() => restoreBackupJson("not json")).toThrow("valid JSON");
     expect(() => restoreBackupJson(JSON.stringify({ format: "other" }))).toThrow("not a valid GymJournal backup");
+  });
+
+  it("round-trips the exact performed date for a backfilled workout", () => {
+    const state = createDefaultAppState();
+    const parsed = parsePastCalendarDate("2026-07-10", new Date("2026-07-29T12:00:00.000Z"));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const draft = createWorkoutBackfillDraft({ performedOn: parsed.value, source: { type: "planned", workout: state.workouts[0] } }, "backfill:backup");
+    const finalized = finalizeWorkoutBackfill(draft, new Date("2026-07-29T12:00:00.000Z"));
+    expect(finalized.ok).toBe(true);
+    if (!finalized.ok) return;
+    state.records = [finalized.value, ...state.records];
+
+    const restored = restoreBackupJson(createBackupJson(state));
+
+    expect(restored.state.records[0]).toMatchObject({ id: "backfill:backup", entryMode: "backfill", performedOn: "2026-07-10" });
   });
 
   it("rejects damaged state without replacing current data", () => {

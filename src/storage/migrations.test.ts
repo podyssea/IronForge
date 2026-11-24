@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { initialFourDaySplit, startActiveSession, toggleWorkoutSuperset } from "../domain/training";
+import { completeActiveSession, initialFourDaySplit, startActiveSession, toggleWorkoutSuperset } from "../domain/training";
 import { DEFAULT_APP_SETTINGS, migrateStoredState } from "./migrations";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 
@@ -180,6 +180,28 @@ describe("storage migrations", () => {
     expect(migrated?.workouts[0].exercises[0].supersetId).toBeTruthy();
     expect(migrated?.workouts[0].exercises[1].supersetId).toBe(migrated?.workouts[0].exercises[0].supersetId);
     expect(migrated?.activeSession?.exercises.every((exercise) => !exercise.supersetId)).toBe(true);
+  });
+
+  it("migrates schema version 14 to version 15 without losing records", () => {
+    const workouts = initialFourDaySplit();
+    const record = completeActiveSession(startActiveSession(workouts[0], new Date("2026-11-20T10:00:00.000Z")), new Date("2026-11-20T11:00:00.000Z"));
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+    const migrated = migrateStoredState({ schemaVersion: 14, workouts, records: [record], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
+
+    expect(migrated?.records).toHaveLength(1);
+    expect(migrated?.records[0]).toMatchObject({ id: record.id, completedAt: record.completedAt, exercises: record.exercises });
+  });
+
+  it("drops malformed optional backfill metadata without discarding valid history", () => {
+    const workouts = initialFourDaySplit();
+    const record = completeActiveSession(startActiveSession(workouts[0], new Date("2026-11-20T10:00:00.000Z")), new Date("2026-11-20T11:00:00.000Z"));
+    const malformed = { ...record, entryMode: "backfill", performedOn: "2026-02-31" };
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+    const migrated = migrateStoredState({ schemaVersion: 15, workouts, records: [malformed], program: currentProgram, activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS, temporaryPlans: [], previousRoutine: null });
+
+    expect(migrated?.records).toHaveLength(1);
+    expect(migrated?.records[0]).not.toHaveProperty("entryMode");
+    expect(migrated?.records[0]).not.toHaveProperty("performedOn");
   });
 
   it("rejects malformed state", () => {

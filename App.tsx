@@ -4,7 +4,7 @@ import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, Sa
 import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, displayWeight, initialFourDaySplit, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, repeatSessionFromRecord, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startActiveSession, startDeloadSession, TrainingPhase, updateExercisePrescription, updateExerciseSet, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, recommendedTrainingSplit, rotateIsolationExercises, routineChangeDate, routineWeek, TrainingSplit } from "./src/domain/programGenerator";
-import { deleteSessionRecord, recentSixWeekRecords, renameSessionExercise } from "./src/domain/sessionJournal";
+import { deleteSessionRecord, renameSessionExercise } from "./src/domain/sessionJournal";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { ProgramScreen } from "./src/screens/ProgramScreen";
 import { WorkoutScreen } from "./src/screens/WorkoutScreen";
@@ -13,6 +13,7 @@ import { AppSettings, DEFAULT_APP_SETTINGS, PreviousRoutine } from "./src/storag
 import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE, fixedTrainingProfile } from "./src/domain/coaching";
 import { completeExpiredTemporaryPlans, createTemporaryPlan, isTemporaryPlanCurrent, TemporaryTrainingPlan, updateTemporaryPlanDraftWorkout, validateTemporaryPlanDates } from "./src/domain/temporaryPlan";
 import { WorkoutEditor } from "./src/components/WorkoutEditor";
+import { finalizeWorkoutBackfill, insertSessionRecord, SaveBackfillResult, sortSessionRecords, WorkoutBackfillDraft } from "./src/domain/workoutBackfill";
 
 type AppView = "log" | "history" | "program";
 
@@ -37,17 +38,28 @@ export default function App() {
   const [temporaryPlans, setTemporaryPlans] = useState<TemporaryTrainingPlan[]>([]);
   const [previousRoutine, setPreviousRoutine] = useState<PreviousRoutine | null>(null);
   const [editingTemporaryPlanId, setEditingTemporaryPlanId] = useState<string | null>(null);
+  const [backfillNavigation, setBackfillNavigation] = useState({ active: false, dirty: false });
   const routinePromptShown = useRef(false);
   const workoutScroll = useRef<ScrollView>(null);
   const exerciseOffsets = useRef<Record<string, number>>({});
   const pendingFocusedExerciseId = useRef<string | null>(null);
+  const recordsRef = useRef<SessionRecord[]>([]);
+  const persistenceQueue = useRef<Promise<void>>(Promise.resolve());
+
+  function enqueueAppStateSave(state: AppState): Promise<void> {
+    const next = persistenceQueue.current.catch(() => undefined).then(() => saveAppState(state));
+    persistenceQueue.current = next;
+    return next;
+  }
 
   useEffect(() => {
     loadAppState().then((state) => {
       setWorkouts(state.workouts);
       setTemporaryPlans(completeExpiredTemporaryPlans(state.temporaryPlans));
       setPreviousRoutine(state.previousRoutine);
-      setRecords(recentSixWeekRecords(state.records));
+      const sortedRecords = sortSessionRecords(state.records);
+      recordsRef.current = sortedRecords;
+      setRecords(sortedRecords);
       setTrainingDays(state.program.trainingDays);
       setPhase(state.program.phase);
       setRoutineStartedAt(state.program.routineStartedAt);
@@ -83,7 +95,7 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) return;
-    saveAppState({ workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans, previousRoutine })
+    enqueueAppStateSave({ workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans, previousRoutine })
       .then(() => setStorageError(null))
       .catch((error: unknown) => {
         console.warn("GymJournal: unable to save app data.", error);
@@ -91,11 +103,14 @@ export default function App() {
       });
   }, [workouts, records, trainingDays, phase, routineStartedAt, routineChangeDeferred, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans, previousRoutine, loaded]);
 
+  useEffect(() => { recordsRef.current = records; }, [records]);
+
   const activeTemporaryPlan = temporaryPlans.find((plan) => isTemporaryPlanCurrent(plan));
   const sessionTemporaryPlan = activeSession ? temporaryPlans.find((plan) => plan.workouts.some((item) => item.id === activeSession.workoutId)) : undefined;
   const editedTemporaryPlan = temporaryPlans.find((plan) => plan.id === editingTemporaryPlanId);
   const visibleTemporaryPlan = editedTemporaryPlan ?? activeTemporaryPlan ?? sessionTemporaryPlan;
   const visibleWorkouts = visibleTemporaryPlan?.workouts ?? workouts;
+  const backfillWorkouts = activeTemporaryPlan?.workouts ?? workouts;
   const selectedWorkoutIndex = selected < visibleWorkouts.length ? selected : 0;
   const workout = visibleWorkouts[selectedWorkoutIndex];
   const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, estimatedDurationMinutes: activeSession.estimatedDurationMinutes, strengthPriority: activeSession.strengthPriority, exercises: activeSession.exercises } : workout;
@@ -230,7 +245,7 @@ export default function App() {
   function saveFinishedWorkout() {
     if (!activeSession) return;
     const record = completeActiveSession(activeSession);
-    setRecords((current) => recentSixWeekRecords([record, ...current]));
+    setRecords((current) => sortSessionRecords([record, ...current]));
     updateVisibleWorkouts((current) => applySessionPerformance(current, activeSession));
     setActiveSession(null);
     Alert.alert("Workout saved", `${completedSets} sets logged · ${displayWeight(record.volume, settings.weightUnit).toLocaleString()} ${weightUnitLabel(settings.weightUnit)} volume`);
@@ -433,6 +448,26 @@ export default function App() {
     Alert.alert(deload ? "Deload ready" : "Workout ready", `${record.workoutTitle.split(" · ").pop()} has been rebuilt using the latest normal working weight recorded for each exercise${deload ? ", reduced to 75%" : ""}.`);
   }
 
+  async function saveBackfill(draft: WorkoutBackfillDraft): Promise<SaveBackfillResult> {
+    if (activeSession) return { ok: false, error: { code: "ACTIVE_SESSION_CONFLICT", message: "Finish your active workout before saving a missed one." } };
+    const finalized = finalizeWorkoutBackfill(draft);
+    if (!finalized.ok) return finalized;
+    const inserted = insertSessionRecord(recordsRef.current, finalized.value);
+    if (!inserted.ok) return inserted;
+    const nextState = appState(inserted.value);
+    try {
+      await enqueueAppStateSave(nextState);
+    } catch (error: unknown) {
+      console.warn("GymJournal: unable to save missed workout.", error);
+      setStorageError("Changes could not be saved. Check available device storage.");
+      return { ok: false, error: { code: "STORAGE_WRITE_FAILED", message: "The missed workout could not be saved. Check device storage and try again." } };
+    }
+    recordsRef.current = inserted.value;
+    setRecords(inserted.value);
+    setStorageError(null);
+    return { ok: true, value: { recordId: finalized.value.id } };
+  }
+
   function createTemporaryPlanDraft(startsAt: string, endsAt: string, trainingSplit: TrainingSplit) {
     if (activeSession) return Alert.alert("Workout in progress", "Finish or cancel your active workout before creating a temporary plan.");
     const error = validateTemporaryPlanDates(startsAt, endsAt);
@@ -536,17 +571,34 @@ export default function App() {
     ]);
   }
 
-  function appState(): AppState {
-    return { workouts, records, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans, previousRoutine };
+  function appState(recordValues = records): AppState {
+    return { workouts, records: recordValues, program: { trainingDays, phase, routineStartedAt, routineChangeDeferred }, activeSession, coachingProfile, coachingDecisions, settings, temporaryPlans, previousRoutine };
   }
+
+  function selectView(nextView: AppView) {
+    const change = () => {
+      setBackfillNavigation({ active: false, dirty: false });
+      setReplacementExerciseId(null);
+      setAddingExercise(false);
+      setView(nextView);
+      workoutScroll.current?.scrollTo({ y: 0, animated: false });
+    };
+    if (nextView !== "history" && backfillNavigation.active && backfillNavigation.dirty) {
+      Alert.alert("Discard this missed workout?", "Your set changes and notes will be lost.", [{ text: "Keep editing", style: "cancel" }, { text: "Discard", style: "destructive", onPress: change }]);
+      return;
+    }
+    change();
+  }
+
+  if (!loaded) return <SafeAreaView style={styles.safe}><StatusBar style="light" /><View accessibilityRole="progressbar" style={styles.loading}><Text style={styles.loadingTitle}>GYMJOURNAL</Text><Text style={styles.loadingText}>Loading your workouts…</Text></View></SafeAreaView>;
 
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
     <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
     <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
-      <View style={styles.viewTabs}>{(["log", "history", "program"] as AppView[]).map((item) => <Pressable key={item} onPress={() => { setReplacementExerciseId(null); setAddingExercise(false); setView(item); }} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
+      <View style={styles.viewTabs}>{(["log", "history", "program"] as AppView[]).map((item) => <Pressable key={item} onPress={() => selectView(item)} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
       {visibleTemporaryPlan && view === "log" && <View style={styles.temporaryBanner}><Text style={styles.temporaryBannerTitle}>{visibleTemporaryPlan.status === "draft" ? "TEMPORARY PLAN DRAFT" : "TEMPORARY PLAN ACTIVE"}</Text><Text style={styles.temporaryBannerText}>{visibleTemporaryPlan.startsAt} → {visibleTemporaryPlan.endsAt}{visibleTemporaryPlan.status === "draft" ? " · Edit every day, then activate it from Program." : " · Your regular routine is safely stored."}</Text></View>}
-      {view === "history" ? <HistoryScreen records={records} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeAt={routineChangeDate(routineStartedAt)?.toISOString() ?? null} routineChangeDeferred={routineChangeDeferred} canRestorePreviousRoutine={previousRoutine !== null} temporaryPlans={temporaryPlans} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onRestorePreviousRoutine={requestPreviousRoutineRestore} onCreateTemporary={createTemporaryPlanDraft} onEditTemporary={editTemporaryPlan} onActivateTemporary={activateTemporaryPlan} onEndTemporary={endTemporaryPlan} onDiscardTemporary={discardTemporaryPlan} onReuseTemporary={reuseTemporaryPlan} onMakeTemporaryRegular={makeTemporaryPlanRegular} /> : editedTemporaryPlan?.status === "draft" && !activeSession ? <>
+      {view === "history" ? <HistoryScreen records={records} workouts={backfillWorkouts} activeSessionExists={Boolean(activeSession)} storageError={storageError} onSaveBackfill={saveBackfill} onBackfillStateChange={setBackfillNavigation} onRequestScrollTop={() => workoutScroll.current?.scrollTo({ y: 0, animated: false })} onReturnToActiveWorkout={() => selectView("log")} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeAt={routineChangeDate(routineStartedAt)?.toISOString() ?? null} routineChangeDeferred={routineChangeDeferred} canRestorePreviousRoutine={previousRoutine !== null} temporaryPlans={temporaryPlans} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onRestorePreviousRoutine={requestPreviousRoutineRestore} onCreateTemporary={createTemporaryPlanDraft} onEditTemporary={editTemporaryPlan} onActivateTemporary={activateTemporaryPlan} onEndTemporary={endTemporaryPlan} onDiscardTemporary={discardTemporaryPlan} onReuseTemporary={reuseTemporaryPlan} onMakeTemporaryRegular={makeTemporaryPlanRegular} /> : editedTemporaryPlan?.status === "draft" && !activeSession ? <>
         <View accessibilityRole="tablist" style={styles.draftDayTabs}>{editedTemporaryPlan.workouts.map((item, index) => <Pressable key={item.id} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index }} accessibilityLabel={`Edit day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => setSelected(index)} style={[styles.draftDay, selectedWorkoutIndex === index && styles.draftDayActive]}><Text style={[styles.draftDayText, selectedWorkoutIndex === index && styles.draftDayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
         <WorkoutEditor
           key={`${editedTemporaryPlan.id}-${workout.id}`}
@@ -568,6 +620,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#101311" }, keyboard: { flex: 1 }, page: { padding: 20, paddingBottom: 42 },
+  loading: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }, loadingTitle: { color: "#d8ff38", fontSize: 18, fontWeight: "900", letterSpacing: 1.2 }, loadingText: { color: "#aab3a7", fontSize: 12, marginTop: 8 },
   storageError: { backgroundColor: "#3b211d", borderColor: "#d36b5b", borderWidth: 1, borderRadius: 7, padding: 11, marginTop: 10 }, storageErrorText: { color: "#ffd6cf", fontSize: 11, lineHeight: 16, fontWeight: "700" },
   viewTabs: { flexDirection: "row", backgroundColor: "#1a1f1a", borderRadius: 8, padding: 4, marginTop: 22, gap: 4 }, viewTab: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 5 }, viewTabActive: { backgroundColor: "#d8ff38" }, viewTabText: { color: "#848c82", fontSize: 9, fontWeight: "900", letterSpacing: .5 }, viewTabTextActive: { color: "#15190f" },
   temporaryBanner: { backgroundColor: "#202917", borderWidth: 1, borderColor: "#809b25", borderRadius: 8, padding: 12, marginTop: 16 }, temporaryBannerTitle: { color: "#d8ff38", fontSize: 10, fontWeight: "900", letterSpacing: 1 }, temporaryBannerText: { color: "#aab4a4", fontSize: 10, lineHeight: 15, marginTop: 5 },

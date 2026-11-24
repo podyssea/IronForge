@@ -31,6 +31,14 @@ describe("workout journal", () => {
     expect(comparison).toMatchObject({ previousFound: true, weightChange: 2.5, repChange: 1, volumeChange: 62.5 });
   });
 
+  it("compares with the chronological predecessor when input is shuffled", () => {
+    const oldest = completedRecord(35, 8, "2026-01-01T10:00:00.000Z", "2026-01-01T11:00:00.000Z");
+    const middle = completedRecord(40, 8, "2026-01-08T10:00:00.000Z", "2026-01-08T11:00:00.000Z");
+    const newest = completedRecord(45, 8, "2026-01-15T10:00:00.000Z", "2026-01-15T11:00:00.000Z");
+    const comparison = compareSessionExercises(newest, [oldest, newest, middle]).get("incline-smith");
+    expect(comparison?.weightChange).toBe(5);
+  });
+
   it("marks the first recorded exercise performance", () => {
     const record = completedRecord(40, 8, "2026-01-01T10:00:00.000Z", "2026-01-01T11:00:00.000Z");
     expect(compareSessionExercises(record, [record]).get("incline-smith")?.previousFound).toBe(false);
@@ -62,6 +70,16 @@ describe("workout journal", () => {
     const now = new Date("2026-01-14T18:00:00.000Z");
 
     expect(recentSixWeekRecords([current, previous, fifthPrevious, expired], now)).toEqual([current, previous, fifthPrevious]);
-    expect(groupRecordsByWeek([current, previous, fifthPrevious, expired], now).map((group) => group.label)).toEqual(["THIS WEEK", "LAST WEEK", "5 WEEKS AGO"]);
+    expect(groupRecordsByWeek([current, previous, fifthPrevious, expired], now).map((group) => group.label)).toEqual(["THIS WEEK", "LAST WEEK", "5 WEEKS AGO", "6 WEEKS AGO"]);
+  });
+
+  it("keeps every workout when multiple records share a calendar week", () => {
+    const monday = completedRecord(40, 8, "2026-01-12T10:00:00.000Z", "2026-01-12T11:00:00.000Z");
+    const wednesday = completedRecord(45, 8, "2026-01-14T10:00:00.000Z", "2026-01-14T11:00:00.000Z");
+
+    const groups = groupRecordsByWeek([monday, wednesday], new Date("2026-01-14T18:00:00.000Z"));
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].records).toEqual([wednesday, monday]);
   });
 });

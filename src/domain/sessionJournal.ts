@@ -1,4 +1,5 @@
 import { Exercise, SessionRecord, SetLog } from "./training";
+import { calendarDateForRecord, sortSessionRecords } from "./workoutBackfill";
 
 export type ExerciseComparison = {
   exerciseId: string;
@@ -9,8 +10,9 @@ export type ExerciseComparison = {
 };
 
 export function compareSessionExercises(record: SessionRecord, records: SessionRecord[]): Map<string, ExerciseComparison> {
-  const recordIndex = records.findIndex((item) => item.id === record.id);
-  const olderRecords = recordIndex >= 0 ? records.slice(recordIndex + 1) : records;
+  const chronological = sortSessionRecords(records);
+  const recordIndex = chronological.findIndex((item) => item.id === record.id);
+  const olderRecords = recordIndex >= 0 ? chronological.slice(recordIndex + 1) : chronological;
   return new Map(record.exercises.map((exercise) => {
     const previous = olderRecords.flatMap((item) => item.exercises).find((item) => item.id === exercise.id && item.sets.some(isCompletedValidSet));
     const currentLatest = latestCompletedSet(exercise);
@@ -54,23 +56,34 @@ export function recentSixWeekRecords(records: SessionRecord[], now = new Date())
   const oldestRetainedWeek = new Date(currentWeek);
   oldestRetainedWeek.setDate(oldestRetainedWeek.getDate() - 35);
   return records.filter((record) => {
-    const completedAt = new Date(record.completedAt);
-    return !Number.isNaN(completedAt.getTime()) && completedAt >= oldestRetainedWeek && completedAt <= now;
+    const completedAt = recordDate(record);
+    return Boolean(completedAt && completedAt >= oldestRetainedWeek && completedAt <= now);
   });
 }
 
 export function groupRecordsByWeek(records: SessionRecord[], now = new Date()): { key: string; label: string; records: SessionRecord[] }[] {
   const currentWeek = startOfWeek(now);
   const groups = new Map<number, SessionRecord[]>();
-  recentSixWeekRecords(records, now).forEach((record) => {
-    const start = startOfWeek(new Date(record.completedAt)).getTime();
-    groups.set(start, [...(groups.get(start) ?? []), record]);
+  sortSessionRecords(records).forEach((record) => {
+    const date = recordDate(record);
+    if (!date) return;
+    const start = startOfWeek(date).getTime();
+    const recordsForWeek = groups.get(start);
+    if (recordsForWeek) recordsForWeek.push(record);
+    else groups.set(start, [record]);
   });
   return [...groups.entries()].sort(([a], [b]) => b - a).map(([timestamp, grouped]) => ({
     key: String(timestamp),
     label: weekLabel(timestamp, currentWeek.getTime()),
     records: grouped,
   }));
+}
+
+function recordDate(record: SessionRecord): Date | null {
+  const calendarDate = calendarDateForRecord(record);
+  if (!calendarDate) return null;
+  const [year, month, day] = calendarDate.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
 }
 
 function weekLabel(timestamp: number, currentWeekTimestamp: number): string {

@@ -1,4 +1,5 @@
 import { isWorkingSet, LoadingType, SessionRecord, SetLog } from "./training";
+import { calendarDateForRecord, sortSessionRecords } from "./workoutBackfill";
 
 export type AnalyticsRange = 7 | 30 | "all";
 export type ExerciseProgress = { recordId: string; completedAt: string; weight: number; reps: number; volume: number; loadingType?: LoadingType };
@@ -20,7 +21,16 @@ export type TrainingAnalytics = {
 export function recordsInRange(records: SessionRecord[], range: AnalyticsRange, now = new Date()): SessionRecord[] {
   if (range === "all") return records;
   const cutoff = now.getTime() - range * 24 * 60 * 60 * 1000;
-  return records.filter((record) => new Date(record.completedAt).getTime() >= cutoff && new Date(record.completedAt).getTime() <= now.getTime());
+  const currentCalendarDate = localCalendarDate(now);
+  const cutoffCalendarDate = localCalendarDate(new Date(cutoff));
+  return records.filter((record) => {
+    if (record.entryMode === "backfill") {
+      const date = calendarDateForRecord(record);
+      return Boolean(date && date >= cutoffCalendarDate && date <= currentCalendarDate);
+    }
+    const completedAt = new Date(record.completedAt).getTime();
+    return completedAt >= cutoff && completedAt <= now.getTime();
+  });
 }
 
 export function calculateAnalytics(records: SessionRecord[], range: AnalyticsRange, plannedWeeklySessions: number, now = new Date()): TrainingAnalytics {
@@ -42,7 +52,13 @@ export function calculateAnalytics(records: SessionRecord[], range: AnalyticsRan
 function comparePriorVolume(records: SessionRecord[], days: number, currentVolume: number, now: Date): number | undefined {
   const currentCutoff = now.getTime() - days * 86_400_000;
   const priorCutoff = currentCutoff - days * 86_400_000;
+  const currentCutoffDate = localCalendarDate(new Date(currentCutoff));
+  const priorCutoffDate = localCalendarDate(new Date(priorCutoff));
   const priorVolume = records.filter((record) => {
+    if (record.entryMode === "backfill") {
+      const date = calendarDateForRecord(record);
+      return Boolean(date && date >= priorCutoffDate && date < currentCutoffDate);
+    }
     const time = new Date(record.completedAt).getTime();
     return time >= priorCutoff && time < currentCutoff;
   }).flatMap((record) => record.exercises.flatMap((exercise) => exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index))))
@@ -58,19 +74,19 @@ function coachSummary(sessions: number, consistency: number, volumeChange?: numb
 }
 
 export function exerciseProgress(records: SessionRecord[], exerciseId: string, range: AnalyticsRange, now = new Date()): ExerciseProgress[] {
-  return recordsInRange(records, range, now).flatMap((record) => {
+  return sortSessionRecords(recordsInRange(records, range, now), "oldest-first").flatMap((record) => {
     const exercise = record.exercises.find((item) => item.id === exerciseId);
     if (!exercise) return [];
     const completed = exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index));
     if (!completed.length) return [];
     const best = completed.reduce((winner, set) => set.weight * set.reps > winner.weight * winner.reps ? set : winner);
     return [{ recordId: record.id, completedAt: record.completedAt, weight: best.weight, reps: best.reps, volume: completed.reduce((sum, set) => sum + set.weight * set.reps, 0), loadingType: exercise.loadingType }];
-  }).reverse();
+  });
 }
 
 export function personalRecords(records: SessionRecord[]): ExerciseRecord[] {
   const results = new Map<string, ExerciseRecord>();
-  records.slice().reverse().forEach((record) => record.exercises.forEach((exercise) => {
+  sortSessionRecords(records, "oldest-first").forEach((record) => record.exercises.forEach((exercise) => {
     const completed = exercise.sets.filter((set, index) => set.completed && isWorkingSet(exercise, index));
     if (!completed.length) return;
     const prior = results.get(exercise.id);
@@ -80,6 +96,10 @@ export function personalRecords(records: SessionRecord[]): ExerciseRecord[] {
     results.set(exercise.id, { exerciseId: exercise.id, exerciseName: exercise.name, maxWeight, maxReps, bestSetVolume, achievedAt: bestSetVolume > (prior?.bestSetVolume ?? -1) ? record.completedAt : prior?.achievedAt ?? record.completedAt, loadingType: exercise.loadingType ?? prior?.loadingType });
   }));
   return [...results.values()].sort((a, b) => b.bestSetVolume - a.bestSetVolume);
+}
+
+function localCalendarDate(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function setVolume(set: SetLog): number {
