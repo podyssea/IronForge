@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { completeActiveSession, initialFourDaySplit, startActiveSession, toggleWorkoutSuperset } from "../domain/training";
+import { completeActiveSession, completeExerciseSummary, initialFourDaySplit, normalizeLegacyExercisePrescription, startActiveSession, startExerciseSummarySession, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSummary } from "../domain/training";
 import { CURRENT_SCHEMA_VERSION, DEFAULT_APP_SETTINGS, migrateStoredState } from "./migrations";
 import { DEFAULT_COACHING_PROFILE } from "../domain/coaching";
+import { strengthFocusedFourDaySplit } from "../domain/personalBaseline";
 
 const program = { trainingDays: 4, phase: "hypertrophy" as const };
 
@@ -241,6 +242,32 @@ describe("storage migrations", () => {
     expect(migrated?.activeSession).toEqual(activeSession);
     expect(migrated?.records[0]).toMatchObject({ exerciseLogFormat: "exercise-summary-v1", volume: null });
     expect(migrated?.records[0].exercises[0].sets).toEqual(activeSession.exercises[0].sets);
+  });
+
+  it("recovers the old strength deadlift template and preserves a newly edited prescription and active log", () => {
+    const workout = strengthFocusedFourDaySplit()[3];
+    const planned = workout.exercises[0];
+    const legacy = normalizeLegacyExercisePrescription(planned);
+    const currentProgram = { ...program, routineStartedAt: "2026-09-01T08:00:00.000Z", routineChangeDeferred: false };
+    const state = {
+      schemaVersion: 16, workouts: [{ ...workout, exercises: [legacy] }], records: [], program: currentProgram,
+      activeSession: null, coachingProfile: DEFAULT_COACHING_PROFILE, coachingDecisions: [], settings: DEFAULT_APP_SETTINGS,
+      temporaryPlans: [], previousRoutine: null,
+    };
+    expect(migrateStoredState(state)?.workouts[0].exercises[0]).toMatchObject({ targetSets: 3, repRange: [3, 5] });
+
+    const edited = { ...workout, exercises: [updateExercisePrescription(planned, { targetSets: 6, repRange: [3, 3] })] };
+    const draft = updateExerciseSummary(startExerciseSummarySession(edited, []), planned.id, { workingWeight: 140, workingSetCount: 7 });
+    const activeSession = updateExerciseSummary(draft, planned.id, { deadliftCalculator: { schemeId: "descending", referenceTripleKg: 160 } });
+    const restored = migrateStoredState({ ...state, workouts: [edited], activeSession });
+    expect(restored?.workouts[0].exercises[0]).toMatchObject({ targetSets: 6, repRange: [3, 3] });
+    expect(restored?.activeSession).toEqual(activeSession);
+
+    const completed = completeExerciseSummary(activeSession, planned.id);
+    const record = completeActiveSession(completed);
+    const restoredRecord = migrateStoredState({ ...state, records: [record], activeSession: completed })?.records[0];
+    expect(restoredRecord?.exercises[0]).toMatchObject({ deadliftPlanLogged: true, sets: record.exercises[0].sets });
+    expect(restoredRecord?.volume).toBe(2350);
   });
 
   it("rejects untracked reps when summary format is not explicit", () => {

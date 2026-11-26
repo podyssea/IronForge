@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, completeExerciseSummary, displayWeight, editWorkoutRoutine, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, replaceWorkoutExercise, resizeActiveExerciseSets, RoutineEdit, SessionRecord, setValidationError, SetLog, startDeloadExerciseSummarySession, startExerciseSummarySession, TrainingPhase, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, weightUnitLabel, Workout } from "./src/domain/training";
+import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, completeExerciseSummary, displayWeight, editWorkoutRoutine, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, replaceWorkoutExercise, resizeActiveExerciseSets, RoutineEdit, SessionRecord, setValidationError, SetLog, startDeloadExerciseSummarySession, startExerciseSummarySession, summaryExerciseSetCount, TrainingPhase, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, recommendedTrainingSplit, rotateIsolationExercises, routineChangeDate, routineWeek, TrainingSplit } from "./src/domain/programGenerator";
 import { deleteSessionRecord, renameSessionExercise } from "./src/domain/sessionJournal";
@@ -126,7 +126,7 @@ export default function App() {
   const displayedWorkout: Workout = activeSession ? { id: activeSession.workoutId, title: activeSession.workoutTitle, focus: activeSession.focus, estimatedDurationMinutes: activeSession.estimatedDurationMinutes, strengthPriority: activeSession.strengthPriority, exercises: activeSession.exercises } : workout;
   const summaryMode = activeSession?.exerciseLogFormat === "exercise-summary-v1";
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && (summaryMode || !setValidationError(set, exercise, index))).length, 0);
-  const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + (summaryMode ? exercise.sets.length : exercise.targetSets), 0);
+  const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + (summaryMode ? summaryExerciseSetCount(exercise) : exercise.targetSets), 0);
   const recommendations = useMemo(() => activeSession ? [] : buildWorkoutRecommendations(workout, records, coachingDecisions), [activeSession, workout, records, coachingDecisions]);
 
   function updateVisibleWorkouts(update: (current: Workout[]) => Workout[]) {

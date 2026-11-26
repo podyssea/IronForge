@@ -1,4 +1,5 @@
-import { ActiveSession, canonicalExerciseName, Exercise, ExerciseLogFormat, normalizeExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { ActiveSession, canonicalExerciseName, Exercise, ExerciseLogFormat, normalizeExercisePrescription, normalizeLegacyExercisePrescription, normalizeSupersetPairs, SessionRecord, TrainingPhase, WeightUnit, Workout } from "../domain/training";
+import { CONVENTIONAL_DEADLIFT_ID, isDeadliftCalculatorInput } from "../domain/deadlift";
 import { CoachingDecision, CoachingProfile, DEFAULT_COACHING_PROFILE } from "../domain/coaching";
 import { Equipment, ExperienceLevel, TrainingStyle } from "../domain/exerciseLibrary";
 import { personalBaselineRecords, personalBaselineWorkouts, strengthFocusedFourDaySplit } from "../domain/personalBaseline";
@@ -346,12 +347,25 @@ function normalizeActiveSession(session: ActiveSession | null): ActiveSession | 
   const exerciseLogFormat = session.exerciseLogFormat ?? "legacy-set-v1";
   const exercises = session.exercises.map((exercise) => exerciseLogFormat === "exercise-summary-v1"
     ? normalizeExercise(exercise)
-    : normalizeExercisePrescription(normalizeExercise(exercise)));
+    : normalizeLegacyExercisePrescription(normalizeExercise(exercise)));
   return { ...session, exerciseLogFormat, notes: typeof session.notes === "string" ? session.notes : "", exercises: normalizeSupersetPairs(exercises) };
 }
 
 function normalizeWorkouts(workouts: Workout[]): Workout[] {
-  return workouts.map((workout) => ({ ...workout, exercises: normalizeSupersetPairs(workout.exercises.map((exercise) => normalizeExercisePrescription(normalizeExercise(exercise)))) }));
+  return workouts.map((workout) => ({
+    ...workout,
+    exercises: normalizeSupersetPairs(workout.exercises.map((exercise) => {
+      // Old releases flattened the built-in 3 × 3–5 prescription to six triples.
+      const legacyStrengthDeadlift = exercise.id === CONVENTIONAL_DEADLIFT_ID && exercise.programmedWorkingSets
+        && exercise.workingSetCount === 6 && exercise.repRange[0] === 3 && exercise.repRange[1] === 3
+        && exercise.restSeconds === 180 && exercise.restSecondsMax === 240
+        && exercise.rirRange?.[0] === 2 && exercise.rirRange[1] === 2;
+      const prescription = normalizeExercise(exercise);
+      return normalizeExercisePrescription(legacyStrengthDeadlift
+        ? { ...prescription, targetSets: 3, repRange: [3, 5] }
+        : prescription);
+    })),
+  }));
 }
 
 function recoverPreviousRoutine(workouts: Workout[], records: SessionRecord[]): PreviousRoutine | null {
@@ -438,8 +452,10 @@ function isExercise(value: unknown, allowUntrackedReps = false): value is Exerci
     && (value.restSecondsMax === undefined || (Number.isInteger(value.restSecondsMax) && (value.restSecondsMax as number) >= 15 && (value.restSecondsMax as number) <= 600))
     && (value.rirRange === undefined || (Array.isArray(value.rirRange) && value.rirRange.length === 2 && value.rirRange.every((item) => isFiniteNumber(item) && item >= 0 && item <= 10)))
     && (value.programmedWorkingSets === undefined || typeof value.programmedWorkingSets === "boolean")
-    && (value.workingSetCount === undefined || (Number.isInteger(value.workingSetCount) && (value.workingSetCount as number) >= 1 && (value.workingSetCount as number) <= 6))
+    && (value.workingSetCount === undefined || (Number.isInteger(value.workingSetCount) && (value.workingSetCount as number) >= 1 && (value.workingSetCount as number) <= (allowUntrackedReps ? 20 : 6)))
     && (value.supersetId === undefined || typeof value.supersetId === "string")
+    && (value.deadliftCalculator === undefined || (allowUntrackedReps && value.id === CONVENTIONAL_DEADLIFT_ID && isDeadliftCalculatorInput(value.deadliftCalculator)))
+    && (value.deadliftPlanLogged === undefined || (allowUntrackedReps && value.id === CONVENTIONAL_DEADLIFT_ID && value.deadliftPlanLogged === true))
     && Array.isArray(value.sets)
     && value.sets.every((set) => isRecord(set)
       && isFiniteNumber(set.weight)

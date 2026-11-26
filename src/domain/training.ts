@@ -1,4 +1,5 @@
 import type { ExerciseDefinition } from "./exerciseLibrary";
+import { calculateDeadliftPlan, CONVENTIONAL_DEADLIFT_ID, DEADLIFT_BAR_KG, deadliftLoadAtOrBelow, isDeadliftCalculatorInput, isDeadliftWorkingWeight, MAX_DEADLIFT_PLANNED_REPS, type DeadliftCalculatorInput } from "./deadlift";
 
 export type WeightUnit = "kg" | "lb";
 export type CalendarDate = string & { readonly __brand: "CalendarDate" };
@@ -6,7 +7,7 @@ export type SetLog = { weight: number; reps: number | null; completed: boolean }
 export type TrackedSetLog = SetLog & { reps: number };
 export type ExerciseLogFormat = "legacy-set-v1" | "exercise-summary-v1";
 export type PerformedExercise =
-  | { kind: "legacy-sets"; sets: (SetLog & { reps: number })[]; volume: number }
+  | { kind: "legacy-sets" | "working-sets"; sets: TrackedSetLog[]; volume: number }
   | { kind: "summary"; workingWeight: number; workingSetCount: number; representativeReps: number | null }
   | { kind: "unavailable"; reason: "no-completed-sets" | "inconsistent-summary" };
 export type LoadingType = "pin-loaded" | "plate-loaded";
@@ -36,6 +37,8 @@ export type Exercise = {
   programmedWorkingSets?: boolean;
   workingSetCount?: number;
   supersetId?: string;
+  deadliftCalculator?: DeadliftCalculatorInput;
+  deadliftPlanLogged?: true;
 };
 
 export type Workout = { id: string; title: string; focus: string; exercises: Exercise[]; estimatedDurationMinutes?: [number, number]; strengthPriority?: string };
@@ -43,11 +46,10 @@ export type SessionRecord = { id: string; sourceWorkoutId?: string; startedAt?: 
 export type ActiveSession = { id: string; workoutId: string; workoutTitle: string; focus: string; startedAt: string; notes: string; focusedExerciseId?: string; deload?: boolean; readiness?: ReadinessCheckIn & { score: number; level: ReadinessAdjustment["level"] }; estimatedDurationMinutes?: [number, number]; strengthPriority?: string; exercises: Exercise[]; exerciseLogFormat?: ExerciseLogFormat };
 export type TrainingPhase = "strength" | "hypertrophy" | "deload";
 type SeedExercise = Omit<Exercise, "sets">;
-const THREE_BY_THREE_EXERCISE_IDS = new Set(["conventional-deadlift"]);
 const DEADLIFT_RAMP_PERCENTAGES = [0.6, 0.675, 0.75, 0.825, 0.9, 1] as const;
 
 export function isThreeByThreeExercise(exercise: Pick<Exercise, "id">): boolean {
-  return THREE_BY_THREE_EXERCISE_IDS.has(exercise.id);
+  return exercise.id === CONVENTIONAL_DEADLIFT_ID;
 }
 
 export function canonicalExerciseName(exercise: Pick<Exercise, "id" | "name">): string {
@@ -153,7 +155,7 @@ export function isSessionComplete(exercises: Exercise[]): boolean {
 
 export function startActiveSession(workout: Workout, now = new Date()): ActiveSession {
   const exercises = workout.exercises.map((exercise) => {
-    const normalized = normalizeExercisePrescription(exercise);
+    const normalized = normalizeLegacyExercisePrescription(exercise);
     const reset = { ...normalized, sets: normalized.sets.map((set) => ({ ...set, completed: false })) };
     const warmupSets = reset.sets.slice(0, workingSetStartIndex(reset));
     return isThreeByThreeExercise(reset) || warmupSets.every((set) => set.weight >= reset.lastWeight)
@@ -177,6 +179,17 @@ export function startActiveSession(workout: Workout, now = new Date()): ActiveSe
 
 export function startExerciseSummarySession(workout: Workout, records: SessionRecord[], now = new Date()): ActiveSession {
   const exercises = workout.exercises.map((exercise) => {
+    if (exercise.id === CONVENTIONAL_DEADLIFT_ID) {
+      const prescription = normalizeExercisePrescription(exercise);
+      const history = latestSummarySeed(records, prescription.id, prescription);
+      const workingWeight = deadliftLoadAtOrBelow(history?.workingWeight ?? 0);
+      return {
+        ...prescription,
+        lastWeight: workingWeight,
+        workingSetCount: prescription.targetSets,
+        sets: prescription.sets.map(() => ({ weight: workingWeight, reps: null, completed: false })),
+      };
+    }
     const seed = latestSummarySeed(records, exercise.id) ?? {
       workingWeight: exercise.lastWeight,
       workingSetCount: Math.max(1, workingSets(exercise).length || exercise.targetSets),
@@ -226,7 +239,10 @@ function applySummaryDeload(session: ActiveSession): ActiveSession {
     focus: `${session.focus} · Deload 75%`,
     deload: true,
     exercises: session.exercises.map((exercise) => {
-      const workingWeight = roundExerciseLoad((exercise.sets[0]?.weight ?? exercise.lastWeight) * 0.75, exercise);
+      const reducedWeight = (exercise.sets[0]?.weight ?? exercise.lastWeight) * 0.75;
+      const workingWeight = exercise.id === CONVENTIONAL_DEADLIFT_ID
+        ? (reducedWeight > 0 ? deadliftLoadAtOrBelow(Math.max(DEADLIFT_BAR_KG, reducedWeight)) : 0)
+        : roundExerciseLoad(reducedWeight, exercise);
       return {
         ...exercise,
         lastWeight: workingWeight,
@@ -240,6 +256,7 @@ export type ExerciseSummaryChanges = {
   workingWeight?: number;
   workingSetCount?: number;
   representativeReps?: number | null;
+  deadliftCalculator?: DeadliftCalculatorInput;
 };
 
 export function updateExerciseSummary(session: ActiveSession, exerciseId: string, changes: ExerciseSummaryChanges): ActiveSession {
@@ -247,19 +264,28 @@ export function updateExerciseSummary(session: ActiveSession, exerciseId: string
   const exercise = session.exercises.find((item) => item.id === exerciseId);
   if (!exercise) return session;
   const current = exercise.sets[0] ?? { weight: exercise.lastWeight, reps: null, completed: false };
+  const isDeadlift = exerciseId === CONVENTIONAL_DEADLIFT_ID;
+  const completed = exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
+  if (changes.deadliftCalculator) {
+    const deadliftCalculator = { ...exercise.deadliftCalculator, ...changes.deadliftCalculator };
+    if (!isDeadlift || completed || !isDeadliftCalculatorInput(deadliftCalculator)) return session;
+    return { ...session, exercises: session.exercises.map((item) => item.id === exerciseId ? { ...item, deadliftCalculator } : item) };
+  }
+  if (exercise.deadliftPlanLogged) return session;
+
   const workingWeight = changes.workingWeight ?? current.weight;
   const workingSetCount = changes.workingSetCount ?? Math.max(1, exercise.sets.length);
   const representativeReps = Object.prototype.hasOwnProperty.call(changes, "representativeReps") ? changes.representativeReps ?? null : current.reps;
   if (!Number.isFinite(workingWeight) || workingWeight < 0 || workingWeight > 2_000) return session;
+  if (isDeadlift && changes.workingWeight !== undefined && !isDeadliftWorkingWeight(workingWeight)) return session;
   if (!Number.isInteger(workingSetCount) || workingSetCount < 1 || workingSetCount > 20) return session;
   if (representativeReps !== null && (!Number.isInteger(representativeReps) || representativeReps < 1 || representativeReps > 100)) return session;
-  const completed = exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
   return {
     ...session,
     exercises: session.exercises.map((item) => item.id !== exerciseId ? item : {
       ...item,
       lastWeight: workingWeight,
-      targetSets: workingSetCount,
+      targetSets: isDeadlift ? item.targetSets : workingSetCount,
       workingSetCount,
       sets: Array.from({ length: workingSetCount }, () => ({ weight: workingWeight, reps: representativeReps, completed })),
     }),
@@ -270,13 +296,39 @@ export function completeExerciseSummary(session: ActiveSession, exerciseId: stri
   if (session.exerciseLogFormat !== "exercise-summary-v1") return session;
   const exercise = session.exercises.find((item) => item.id === exerciseId);
   if (!exercise || exercise.sets.every((set) => set.completed)) return session;
-  const candidate = { ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: true })) };
-  if (performedExercise(candidate, "exercise-summary-v1").kind !== "summary") return session;
+  const candidate = exerciseId === CONVENTIONAL_DEADLIFT_ID
+    ? completeDeadliftPlan(exercise, session.deload)
+    : { ...exercise, sets: exercise.sets.map((set) => ({ ...set, completed: true })) };
+  if (!candidate || performedExercise(candidate, "exercise-summary-v1").kind === "unavailable") return session;
   const exercises = session.exercises.map((item) => item.id === exerciseId ? candidate : item);
   const currentIndex = exercises.findIndex((item) => item.id === exerciseId);
   const next = [...exercises.slice(currentIndex + 1), ...exercises.slice(0, currentIndex)]
     .find((item) => !item.sets.length || item.sets.some((set) => !set.completed));
   return { ...session, focusedExerciseId: next?.id, exercises };
+}
+
+function completeDeadliftPlan(exercise: Exercise, deload?: boolean): Exercise | undefined {
+  const inputs = exercise.deadliftCalculator;
+  const plan = calculateDeadliftPlan(inputs?.schemeId, inputs?.referenceTripleKg, deload);
+  if (!plan) return undefined;
+  const sets = plan.workingSets.map((set) => ({ ...set, completed: true }));
+  const reps = sets.map((set) => set.reps);
+  const completed: Exercise = {
+    ...exercise,
+    deadliftPlanLogged: true,
+    targetSets: sets.length,
+    workingSetCount: sets.length,
+    repRange: [Math.min(...reps), Math.max(...reps)],
+    sets,
+  };
+  const best = bestCompletedWorkingSet(completed);
+  return best ? { ...completed, lastWeight: best.weight, lastReps: best.reps } : undefined;
+}
+
+export function summaryExerciseSetCount(exercise: Exercise): number {
+  if (!exercise.deadliftCalculator || exercise.sets.some((set) => set.completed)) return exercise.sets.length;
+  const { schemeId, referenceTripleKg } = exercise.deadliftCalculator;
+  return calculateDeadliftPlan(schemeId, referenceTripleKg)?.workingSets.length ?? exercise.sets.length;
 }
 
 export function reopenExerciseSummary(session: ActiveSession, exerciseId: string): ActiveSession {
@@ -294,19 +346,35 @@ export function isExerciseSummarySessionComplete(session: ActiveSession): boolea
   return session.exerciseLogFormat === "exercise-summary-v1"
     && session.exercises.every((exercise) => exercise.sets.length > 0
       && exercise.sets.every((set) => set.completed)
-      && performedExercise(exercise, "exercise-summary-v1").kind === "summary");
+      && performedExercise(exercise, "exercise-summary-v1").kind !== "unavailable");
 }
 
-function latestSummarySeed(records: SessionRecord[], exerciseId: string): { workingWeight: number; workingSetCount: number } | undefined {
+function latestSummarySeed(records: SessionRecord[], exerciseId: string, prescription?: Exercise): { workingWeight: number; workingSetCount: number } | undefined {
   return [...records]
     .filter((record) => !record.deload)
     .sort((left, right) => new Date(right.completedAt).getTime() - new Date(left.completedAt).getTime())
     .flatMap((record) => {
       const exercise = record.exercises.find((item) => item.id === exerciseId);
       if (!exercise) return [];
-      const performed = performedExercise(exercise, record.exerciseLogFormat ?? "legacy-set-v1");
+      const format = record.exerciseLogFormat ?? "legacy-set-v1";
+      const performed = performedExercise(exercise, format);
+      if (prescription) {
+        const [minReps, maxReps] = prescription.repRange;
+        const plannedCount = format === "exercise-summary-v1" ? exercise.targetSets : exercise.workingSetCount ?? workingSets(exercise).length;
+        if (plannedCount !== prescription.targetSets || exercise.repRange[0] !== minReps || exercise.repRange[1] !== maxReps) return [];
+        if (performed.kind === "summary") {
+          const reps = performed.representativeReps;
+          return performed.workingWeight >= DEADLIFT_BAR_KG && (reps === null || (reps >= minReps && reps <= maxReps))
+            ? [{ workingWeight: performed.workingWeight, workingSetCount: performed.workingSetCount }]
+            : [];
+        }
+        if (performed.kind === "legacy-sets" || performed.kind === "working-sets") {
+          const { weight } = performed.sets[0];
+          if (weight < DEADLIFT_BAR_KG || !performed.sets.every((set) => set.weight === weight && set.reps >= minReps && set.reps <= maxReps)) return [];
+        }
+      }
       if (performed.kind === "summary") return [{ workingWeight: performed.workingWeight, workingSetCount: performed.workingSetCount }];
-      if (performed.kind === "legacy-sets") {
+      if (performed.kind === "legacy-sets" || performed.kind === "working-sets") {
         return [{
           workingWeight: performed.sets.reduce((maximum, set) => Math.max(maximum, set.weight), 0),
           workingSetCount: performed.sets.length,
@@ -333,6 +401,7 @@ export function applyDeloadToSession(session: ActiveSession): ActiveSession {
 }
 
 export function workingSetStartIndex(exercise: Exercise): number {
+  if (exercise.deadliftPlanLogged) return 0;
   if (isThreeByThreeExercise(exercise)) return Math.max(0, exercise.sets.length - calculatorWorkingSetCount(exercise));
   return Math.max(0, exercise.sets.length - 2);
 }
@@ -356,6 +425,12 @@ export function performedExercise(exercise: Exercise, format: ExerciseLogFormat)
 
   const sets = exercise.sets.filter((set) => set.completed);
   if (!sets.length) return { kind: "unavailable", reason: "no-completed-sets" };
+  if (exercise.id === CONVENTIONAL_DEADLIFT_ID && exercise.deadliftPlanLogged) {
+    const valid = sets.every((set): set is TrackedSetLog => isDeadliftWorkingWeight(set.weight)
+      && hasTrackedReps(set) && Number.isInteger(set.reps) && set.reps >= 1 && set.reps <= MAX_DEADLIFT_PLANNED_REPS);
+    if (!valid || sets.length > 20) return { kind: "unavailable", reason: "inconsistent-summary" };
+    return { kind: "working-sets", sets, volume: sets.reduce((sum, set) => sum + set.weight * set.reps, 0) };
+  }
   const first = sets[0];
   const validWeight = Number.isFinite(first.weight) && first.weight >= 0 && first.weight <= 2_000;
   const validReps = first.reps === null || (Number.isInteger(first.reps) && first.reps >= 1 && first.reps <= 100);
@@ -499,6 +574,7 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
   const hasUntrackedCompletedReps = summaryFormat && session.exercises.some((exercise) => exercise.sets.some((set) => set.completed && set.reps === null));
   const summaryVolume = summaryFormat ? session.exercises.reduce((total, exercise) => {
     const performed = performedExercise(exercise, "exercise-summary-v1");
+    if (performed.kind === "working-sets") return total + performed.volume;
     return performed.kind === "summary" && performed.representativeReps !== null
       ? total + performed.workingWeight * performed.workingSetCount * performed.representativeReps
       : total;
@@ -519,6 +595,7 @@ export function completeActiveSession(session: ActiveSession, now = new Date()):
         const performed = performedExercise(exercise, "exercise-summary-v1");
         return {
           ...exercise,
+          ...(exercise.deadliftCalculator && { deadliftCalculator: undefined }),
           lastWeight: performed.kind === "summary" ? performed.workingWeight : exercise.lastWeight,
           lastReps: performed.kind === "summary" && performed.representativeReps !== null ? performed.representativeReps : exercise.lastReps,
           sets: exercise.sets.map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed })),
@@ -562,7 +639,7 @@ export function repeatSessionFromRecord(record: SessionRecord, records: SessionR
           ...(latest.sets[index] ?? recordedExercise.sets[index]),
           completed: false,
         }));
-      return normalizeExercisePrescription({
+      return normalizeLegacyExercisePrescription({
         ...recordedExercise,
         loadingType: current?.loadingType ?? latest.loadingType ?? recordedExercise.loadingType,
         loadIncrement: current?.loadIncrement ?? latest.loadIncrement ?? recordedExercise.loadIncrement,
@@ -604,6 +681,16 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
       if (!performed) return exercise;
       if (session.exerciseLogFormat === "exercise-summary-v1") {
         const summary = performedExercise(performed, "exercise-summary-v1");
+        if (exercise.id === CONVENTIONAL_DEADLIFT_ID) {
+          if (session.deload) return exercise;
+          if (summary.kind === "working-sets") return normalizeExercisePrescription({
+            ...exercise, lastWeight: performed.lastWeight, lastReps: performed.lastReps,
+          });
+          if (summary.kind === "summary") return normalizeExercisePrescription({
+            ...exercise, lastWeight: summary.workingWeight, lastReps: summary.representativeReps ?? exercise.lastReps,
+          });
+          return exercise;
+        }
         if (summary.kind !== "summary") return exercise;
         const targetSets = Math.max(2, Math.min(5, summary.workingSetCount));
         return applyWarmupLoads(normalizeExercisePrescription({
@@ -618,6 +705,12 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
             completed: false,
           })),
         }), summary.workingWeight);
+      }
+      if (isThreeByThreeExercise(performed)) {
+        const best = bestCompletedWorkingSet(performed);
+        return session.deload || !best ? exercise : normalizeExercisePrescription({
+          ...exercise, lastWeight: best.weight, lastReps: best.reps,
+        });
       }
       const resized = {
         ...exercise,
@@ -648,10 +741,6 @@ export function applySessionPerformance(workouts: Workout[], session: ActiveSess
       }
       const best = bestCompletedWorkingSet(performed);
       if (!best) return preservePerformedWarmups(exercise.lastWeight);
-      if (isThreeByThreeExercise(performed)) {
-        const conqueredTriple = best.reps >= 3 ? best.weight : exercise.lastWeight;
-        return applyWarmupLoads({ ...resized, lastWeight: conqueredTriple, lastReps: 3 }, conqueredTriple);
-      }
       return {
         ...resized,
         lastWeight: best.weight,
@@ -686,15 +775,17 @@ export function replaceExerciseInWorkoutDraft(workout: Workout, exerciseId: stri
   const bestReps = historical?.best.weight === bestWeight ? historical.best.reps : known?.lastReps;
   return {
     ...workout,
-    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : applyWarmupLoads(normalizeExercisePrescription({
+    exercises: workout.exercises.map((exercise) => exercise.id !== exerciseId ? exercise : prepareDraftExercise({
       ...exercise,
       id: replacement.id,
       name: replacement.name,
       loadingType: known?.loadingType ?? historical?.exercise.loadingType,
+      deadliftCalculator: undefined,
+      deadliftPlanLogged: undefined,
       lastWeight: bestWeight,
       lastReps: bestReps ?? exercise.repRange[0],
       sets: Array.from({ length: exercise.targetSets }, () => ({ weight: bestWeight, reps: bestReps ?? exercise.repRange[0], completed: false })),
-    }), bestWeight)),
+    })),
   };
 }
 
@@ -704,7 +795,7 @@ export function addExerciseToWorkoutDraft(workout: Workout, definition: { id: st
   const workingWeight = Math.max(known?.lastWeight ?? 0, historical?.best.weight ?? 0);
   const lastReps = historical?.best.weight === workingWeight ? historical.best.reps : known?.lastReps ?? definition.defaultRepRanges.hypertrophy[0];
   const targetSets = definition.modality === "isolation" ? 3 : 4;
-  const added = applyWarmupLoads(normalizeExercisePrescription({
+  const added = prepareDraftExercise({
     id: definition.id,
     name: definition.name,
     targetSets,
@@ -715,8 +806,13 @@ export function addExerciseToWorkoutDraft(workout: Workout, definition: { id: st
     loadIncrement: known?.loadIncrement ?? historical?.exercise.loadIncrement,
     restSeconds: known?.restSeconds ?? historical?.exercise.restSeconds ?? 90,
     sets: Array.from({ length: targetSets }, () => ({ weight: workingWeight, reps: lastReps, completed: false })),
-  }), workingWeight);
+  });
   return { ...workout, exercises: [...workout.exercises, added] };
+}
+
+function prepareDraftExercise(exercise: Exercise): Exercise {
+  const normalized = normalizeExercisePrescription(exercise);
+  return exercise.id === CONVENTIONAL_DEADLIFT_ID ? normalized : applyWarmupLoads(normalized);
 }
 
 export function removeExerciseFromWorkoutDraft(workout: Workout, exerciseId: string): Workout {
@@ -744,6 +840,7 @@ export function removeWorkoutExercise(workouts: Workout[], workoutId: string, ex
 
 export type RoutineEdit =
   | { type: "add"; exercise: ExerciseDefinition }
+  | { type: "deadlift-prescription"; exerciseId: string; targetSets?: number; repRange?: [number, number] }
   | { type: "replace"; exerciseId: string; exercise: ExerciseDefinition }
   | { type: "remove"; exerciseId: string }
   | { type: "reorder"; exerciseId: string; targetExerciseId: string }
@@ -753,6 +850,13 @@ export function editWorkoutRoutine(workouts: Workout[], workoutId: string, edit:
   switch (edit.type) {
     case "add":
       return addWorkoutExercise(workouts, workoutId, edit.exercise, records);
+    case "deadlift-prescription":
+      return workouts.map((workout) => workout.id !== workoutId ? workout : {
+        ...workout,
+        exercises: workout.exercises.map((exercise) => exercise.id === CONVENTIONAL_DEADLIFT_ID && exercise.id === edit.exerciseId
+          ? updateExercisePrescription(exercise, { targetSets: edit.targetSets, repRange: edit.repRange })
+          : exercise),
+      });
     case "replace":
       return replaceWorkoutExercise(workouts, workoutId, edit.exerciseId, edit.exercise, records);
     case "remove":
@@ -824,7 +928,11 @@ export function weightUnitLabel(unit: WeightUnit): string {
 }
 
 export function updateExercisePrescription(exercise: Exercise, changes: { name?: string; targetSets?: number; repRange?: [number, number]; loadIncrement?: number; restSeconds?: number }): Exercise {
-  if (isThreeByThreeExercise(exercise)) return normalizeExercisePrescription(exercise);
+  if (exercise.id === CONVENTIONAL_DEADLIFT_ID) return normalizeExercisePrescription({
+    ...exercise,
+    targetSets: changes.targetSets ?? exercise.targetSets,
+    repRange: changes.repRange ?? exercise.repRange,
+  });
   const targetSets = Math.max(2, Math.min(5, changes.targetSets ?? exercise.targetSets));
   const repRange = changes.repRange ?? exercise.repRange;
   const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;
@@ -850,8 +958,7 @@ export function resizeActiveExerciseSets(exercise: Exercise, targetSets: number)
   return { ...exercise, targetSets: nextTarget, sets };
 }
 
-export function normalizeExercisePrescription(exercise: Exercise): Exercise {
-  const modality = getExerciseDefinition(exercise.id)?.modality;
+export function normalizeLegacyExercisePrescription(exercise: Exercise): Exercise {
   if (isThreeByThreeExercise(exercise)) {
     const workingCount = calculatorWorkingSetCount(exercise);
     const workingStart = workingSetStartIndex(exercise);
@@ -868,6 +975,24 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
       sets: workingSets,
     }, exercise.lastWeight);
   }
+  return normalizeExercisePrescription(exercise);
+}
+
+export function normalizeExercisePrescription(exercise: Exercise): Exercise {
+  if (exercise.id === CONVENTIONAL_DEADLIFT_ID) {
+    const targetSets = Math.max(1, Math.min(20, Math.round(exercise.targetSets)));
+    const minimumReps = Math.max(1, Math.min(MAX_DEADLIFT_PLANNED_REPS, Math.round(exercise.repRange[0])));
+    const maximumReps = Math.max(minimumReps, Math.min(MAX_DEADLIFT_PLANNED_REPS, Math.round(exercise.repRange[1])));
+    return {
+      ...exercise,
+      targetSets,
+      workingSetCount: undefined,
+      ...(exercise.deadliftPlanLogged && { deadliftPlanLogged: undefined }),
+      repRange: [minimumReps, maximumReps],
+      sets: Array.from({ length: targetSets }, () => ({ weight: exercise.lastWeight, reps: minimumReps, completed: false })),
+    };
+  }
+  const modality = getExerciseDefinition(exercise.id)?.modality;
   const maximumReps = modality === "compound" ? (exercise.programmedWorkingSets ? 12 : 10) : modality === "isolation" ? 20 : 12;
   const minimumAllowedReps = exercise.programmedWorkingSets ? 3 : 6;
   const minimumReps = Math.min(maximumReps, Math.max(minimumAllowedReps, exercise.repRange[0]));

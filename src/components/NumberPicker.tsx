@@ -3,15 +3,28 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, Tex
 
 export type NumberOption = { value: number; label: string };
 
-export function NumberPicker({ label, value, options, disabled, allowCustom = false, onChange, onCustomChange }: { label: string; value: number; options: NumberOption[]; startingValue?: number; disabled?: boolean; allowCustom?: boolean; onChange: (value: number) => void; onCustomChange?: (value: number) => void }) {
+export function NumberPicker({ label, value, options, disabled, allowCustom = false, onChange, onCustomChange, valueLabel, customPlaceholder = "Custom weight", validateCustom }: {
+  label: string;
+  value: number;
+  options: NumberOption[];
+  startingValue?: number;
+  disabled?: boolean;
+  allowCustom?: boolean;
+  onChange: (value: number) => void;
+  onCustomChange?: (value: number) => void;
+  valueLabel?: string;
+  customPlaceholder?: string;
+  validateCustom?: (value: number) => boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [customValue, setCustomValue] = useState("");
   const selected = options.find((option) => option.value === value) ?? { value, label: String(value) };
   const pickerDisabled = disabled || (options.length <= 1 && !allowCustom);
-  const denseOptions = options.length > 12;
+  const denseOptions = options.length > 6;
   const veryDenseOptions = options.length > 80;
   const parsedCustomValue = Number(customValue.replace(",", "."));
-  const customValueIsValid = customValue.trim().length > 0 && Number.isFinite(parsedCustomValue) && parsedCustomValue >= 0;
+  const customValueIsValid = customValue.trim().length > 0 && Number.isFinite(parsedCustomValue) && parsedCustomValue >= 0
+    && (!validateCustom || validateCustom(parsedCustomValue));
   const applyCustomValue = () => {
     if (!customValueIsValid) return;
     (onCustomChange ?? onChange)(parsedCustomValue);
@@ -19,14 +32,14 @@ export function NumberPicker({ label, value, options, disabled, allowCustom = fa
     setOpen(false);
   };
   return <>
-    <Pressable disabled={pickerDisabled} accessibilityRole="button" accessibilityLabel={`${label}: ${selected.label}`} onPress={() => setOpen(true)} style={[styles.trigger, disabled && styles.triggerDisabled]}><Text style={[styles.triggerText, disabled && styles.triggerTextDisabled]}>{selected.label}</Text>{options.length > 1 && <Text style={styles.chevron}>⌄</Text>}</Pressable>
+    <Pressable disabled={pickerDisabled} accessibilityRole="button" accessibilityLabel={`${label}: ${valueLabel ?? selected.label}`} onPress={() => setOpen(true)} style={[styles.trigger, disabled && styles.triggerDisabled]}><Text style={[styles.triggerText, disabled && styles.triggerTextDisabled]}>{valueLabel ?? selected.label}</Text>{!pickerDisabled && <Text style={styles.chevron}>⌄</Text>}</Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardAvoider}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.eyebrow}>SELECT VALUE</Text><Text numberOfLines={2} style={styles.title}>{label}</Text></View><Pressable onPress={() => setOpen(false)} style={styles.close}><Text style={styles.closeText}>DONE</Text></Pressable></View>
-          {allowCustom && <View style={styles.customRow}><TextInput value={customValue} onChangeText={setCustomValue} onSubmitEditing={applyCustomValue} placeholder="Custom weight" placeholderTextColor="#727a70" keyboardType="decimal-pad" returnKeyType="done" style={styles.customInput} /><Pressable disabled={!customValueIsValid} onPress={applyCustomValue} style={[styles.customButton, !customValueIsValid && styles.customButtonDisabled]}><Text style={styles.customButtonText}>USE</Text></Pressable></View>}
-          <View style={styles.options}><View style={[styles.optionGrid, !denseOptions && styles.optionGridShort]}>{options.map((option) => <Pressable key={`${option.value}:${option.label}`} accessibilityRole="button" accessibilityState={{ selected: option.value === value }} onPress={() => { onChange(option.value); setOpen(false); }} style={[styles.option, veryDenseOptions ? styles.optionVeryDense : denseOptions ? styles.optionDense : styles.optionShort, option.value === value && styles.optionActive]}><Text style={[styles.optionText, veryDenseOptions && styles.optionTextVeryDense, option.value === value && styles.optionTextActive]}>{option.label}</Text>{option.value === value ? <Text style={[styles.check, veryDenseOptions && styles.checkVeryDense]}>✓</Text> : null}</Pressable>)}</View></View>
+          {allowCustom && <View style={styles.customRow}><TextInput accessibilityLabel={customPlaceholder} value={customValue} onChangeText={setCustomValue} onSubmitEditing={applyCustomValue} placeholder={customPlaceholder} placeholderTextColor="#727a70" keyboardType="decimal-pad" returnKeyType="done" style={styles.customInput} /><Pressable accessibilityRole="button" disabled={!customValueIsValid} onPress={applyCustomValue} style={[styles.customButton, !customValueIsValid && styles.customButtonDisabled]}><Text style={styles.customButtonText}>USE</Text></Pressable></View>}
+          {options.length > 0 && <View style={styles.options}><View style={[styles.optionGrid, !denseOptions && styles.optionGridShort]}>{options.map((option) => <Pressable key={`${option.value}:${option.label}`} accessibilityRole="button" accessibilityState={{ selected: option.value === value }} onPress={() => { onChange(option.value); setOpen(false); }} style={[styles.option, veryDenseOptions ? styles.optionVeryDense : denseOptions ? styles.optionDense : styles.optionShort, option.value === value && styles.optionActive]}><Text style={[styles.optionText, veryDenseOptions && styles.optionTextVeryDense, option.value === value && styles.optionTextActive]}>{option.label}</Text>{option.value === value ? <Text style={[styles.check, veryDenseOptions && styles.checkVeryDense]}>✓</Text> : null}</Pressable>)}</View></View>}
         </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
