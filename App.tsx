@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, LayoutChangeEvent, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, completeExerciseSummary, displayWeight, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, replaceWorkoutExercise, resizeActiveExerciseSets, SessionRecord, setValidationError, SetLog, startDeloadExerciseSummarySession, startExerciseSummarySession, TrainingPhase, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, weightUnitLabel, Workout } from "./src/domain/training";
+import { ActiveSession, addWorkoutExercise, applySessionPerformance, applyWarmupLoads, canonicalExerciseName, completeActiveSession, completeExerciseSummary, displayWeight, editWorkoutRoutine, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, LoadingType, moveWorkoutExercise, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, replaceWorkoutExercise, resizeActiveExerciseSets, RoutineEdit, SessionRecord, setValidationError, SetLog, startDeloadExerciseSummarySession, startExerciseSummarySession, TrainingPhase, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, weightUnitLabel, Workout } from "./src/domain/training";
 import { ExerciseDefinition } from "./src/domain/exerciseLibrary";
 import { generateAdaptiveProgram, isRoutineChangeDue, recommendedTrainingSplit, rotateIsolationExercises, routineChangeDate, routineWeek, TrainingSplit } from "./src/domain/programGenerator";
 import { deleteSessionRecord, renameSessionExercise } from "./src/domain/sessionJournal";
@@ -12,6 +12,8 @@ import { AppState, loadAppState, saveAppState } from "./src/storage/appStorage";
 import { AppSettings, DEFAULT_APP_SETTINGS, PreviousRoutine } from "./src/storage/migrations";
 import { applyCoachingRecommendation, buildWorkoutRecommendations, CoachingDecision, CoachingProfile, CoachingRecommendation, DEFAULT_COACHING_PROFILE, fixedTrainingProfile } from "./src/domain/coaching";
 import { completeExpiredTemporaryPlans, createTemporaryPlan, isTemporaryPlanCurrent, TemporaryTrainingPlan, updateTemporaryPlanDraftWorkout, validateTemporaryPlanDates } from "./src/domain/temporaryPlan";
+import { CoachPanel } from "./src/components/CoachPanel";
+import type { RoutineScroll } from "./src/components/RoutineExerciseList";
 import { WorkoutEditor } from "./src/components/WorkoutEditor";
 import { finalizeWorkoutBackfill, insertSessionRecord, SaveBackfillResult, sortSessionRecords, WorkoutBackfillDraft } from "./src/domain/workoutBackfill";
 
@@ -41,6 +43,14 @@ export default function App() {
   const [backfillNavigation, setBackfillNavigation] = useState({ active: false, dirty: false });
   const routinePromptShown = useRef(false);
   const workoutScroll = useRef<ScrollView>(null);
+  const workoutScrollOffset = useRef(0);
+  const [workoutScrollEnabled, setWorkoutScrollEnabled] = useState(true);
+  const routineScroll: RoutineScroll = {
+    offset: () => workoutScrollOffset.current,
+    scrollTo: (y) => workoutScroll.current?.scrollTo({ y, animated: false }),
+    setEnabled: setWorkoutScrollEnabled,
+    measure: (callback) => workoutScroll.current?.getNativeScrollRef()?.measure((_x, _y, _width, height, _pageX, pageY) => callback(pageY, height)),
+  };
   const exerciseOffsets = useRef<Record<string, number>>({});
   const pendingFocusedExerciseId = useRef<string | null>(null);
   const recordsRef = useRef<SessionRecord[]>([]);
@@ -216,6 +226,11 @@ export default function App() {
       ...item,
       exercises: item.exercises.map((exercise) => exercise.id === exerciseId ? updateExercisePrescription(exercise, { targetSets: exercise.targetSets - 1 }) : exercise),
     }));
+  }
+
+  function editRoutine(edit: RoutineEdit) {
+    if (activeSession) return;
+    updateVisibleWorkouts((current) => editWorkoutRoutine(current, workout.id, edit, records));
   }
 
   function moveExercise(exerciseId: string, direction: -1 | 1) {
@@ -435,7 +450,7 @@ export default function App() {
 
   function decideRecommendation(recommendation: CoachingRecommendation, selectedWeight: number, rejected = false) {
     const outcome: CoachingDecision["outcome"] = rejected ? "rejected" : selectedWeight === recommendation.suggestedWeight ? "accepted" : "modified";
-    if (!rejected) setWorkouts((current) => applyCoachingRecommendation(current, recommendation, selectedWeight));
+    if (!rejected) updateVisibleWorkouts((current) => applyCoachingRecommendation(current, recommendation, selectedWeight));
     setCoachingDecisions((current) => [{ recommendationId: recommendation.id, decidedAt: new Date().toISOString(), outcome, selectedWeight }, ...current]);
   }
 
@@ -606,6 +621,7 @@ export default function App() {
       setReplacementExerciseId(null);
       setAddingExercise(false);
       setView(nextView);
+      workoutScrollOffset.current = 0;
       workoutScroll.current?.scrollTo({ y: 0, animated: false });
     };
     if (nextView !== "history" && backfillNavigation.active && backfillNavigation.dirty) {
@@ -619,11 +635,22 @@ export default function App() {
 
   return <SafeAreaView style={styles.safe}><StatusBar style="light" />
     <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-    <ScrollView ref={workoutScroll} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+    <ScrollView ref={workoutScroll} scrollEnabled={workoutScrollEnabled}
+      onScroll={view === "log" && !activeSession ? (event) => { workoutScrollOffset.current = event.nativeEvent.contentOffset.y; } : undefined}
+      scrollEventThrottle={16} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       {storageError && <View style={styles.storageError}><Text style={styles.storageErrorText}>{storageError}</Text></View>}
       <View style={styles.viewTabs}>{(["log", "history", "program"] as AppView[]).map((item) => <Pressable key={item} onPress={() => selectView(item)} style={[styles.viewTab, view === item && styles.viewTabActive]}><Text style={[styles.viewTabText, view === item && styles.viewTabTextActive]}>{item.toUpperCase()}</Text></Pressable>)}</View>
-      {visibleTemporaryPlan && view === "log" && <View style={styles.temporaryBanner}><Text style={styles.temporaryBannerTitle}>{visibleTemporaryPlan.status === "draft" ? "TEMPORARY PLAN DRAFT" : "TEMPORARY PLAN ACTIVE"}</Text><Text style={styles.temporaryBannerText}>{visibleTemporaryPlan.startsAt} → {visibleTemporaryPlan.endsAt}{visibleTemporaryPlan.status === "draft" ? " · Edit every day, then activate it from Program." : " · Your regular routine is safely stored."}</Text></View>}
-      {view === "history" ? <HistoryScreen records={records} workouts={backfillWorkouts} activeSessionExists={Boolean(activeSession)} storageError={storageError} onSaveBackfill={saveBackfill} onBackfillStateChange={setBackfillNavigation} onRequestScrollTop={() => workoutScroll.current?.scrollTo({ y: 0, animated: false })} onReturnToActiveWorkout={() => selectView("log")} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeAt={routineChangeDate(routineStartedAt)?.toISOString() ?? null} routineChangeDeferred={routineChangeDeferred} canRestorePreviousRoutine={previousRoutine !== null} temporaryPlans={temporaryPlans} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onRestorePreviousRoutine={requestPreviousRoutineRestore} onCreateTemporary={createTemporaryPlanDraft} onEditTemporary={editTemporaryPlan} onActivateTemporary={activateTemporaryPlan} onEndTemporary={endTemporaryPlan} onDiscardTemporary={discardTemporaryPlan} onReuseTemporary={reuseTemporaryPlan} onMakeTemporaryRegular={makeTemporaryPlanRegular} /> : editedTemporaryPlan?.status === "draft" && !activeSession ? <>
+      {visibleTemporaryPlan && view === "log" && <View style={styles.temporaryBanner}><Text style={styles.temporaryBannerTitle}>{visibleTemporaryPlan.status === "draft" ? "TEMPORARY PLAN DRAFT" : "TEMPORARY PLAN ACTIVE"}</Text>{(activeSession || visibleTemporaryPlan.status === "draft") && <Text style={styles.temporaryBannerText}>{visibleTemporaryPlan.startsAt} → {visibleTemporaryPlan.endsAt}{visibleTemporaryPlan.status === "draft" ? " · Edit every day, then activate it from Program." : " · Your regular routine is safely stored."}</Text>}</View>}
+      {view === "history" ? <HistoryScreen records={records} workouts={backfillWorkouts} activeSessionExists={Boolean(activeSession)} storageError={storageError} onSaveBackfill={saveBackfill} onBackfillStateChange={setBackfillNavigation} onRequestScrollTop={() => workoutScroll.current?.scrollTo({ y: 0, animated: false })} onReturnToActiveWorkout={() => selectView("log")} weightUnit={settings.weightUnit} onRepeat={repeatWorkout} onUpdateNotes={updateRecordNotes} onUpdateExerciseName={updateRecordExerciseName} onDelete={(recordId) => setRecords((current) => deleteSessionRecord(current, recordId))} /> : view === "program" ? <>
+        <ProgramScreen trainingDays={trainingDays} profile={coachingProfile} currentRoutineWeek={routineWeek(routineStartedAt)} routineChangeAt={routineChangeDate(routineStartedAt)?.toISOString() ?? null} routineChangeDeferred={routineChangeDeferred} canRestorePreviousRoutine={previousRoutine !== null} temporaryPlans={temporaryPlans} onDays={setTrainingDays} onProfile={setCoachingProfile} onApply={applyProgram} onRotateRoutine={requestRoutineRotation} onRestorePreviousRoutine={requestPreviousRoutineRestore} onCreateTemporary={createTemporaryPlanDraft} onEditTemporary={editTemporaryPlan} onActivateTemporary={activateTemporaryPlan} onEndTemporary={endTemporaryPlan} onDiscardTemporary={discardTemporaryPlan} onReuseTemporary={reuseTemporaryPlan} onMakeTemporaryRegular={makeTemporaryPlanRegular} />
+        <CoachPanel
+          workoutTitle={workout.title.split(" · ").pop() ?? workout.title}
+          recommendations={recommendations}
+          onApply={(recommendation, weight) => decideRecommendation(recommendation, weight)}
+          onReject={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)}
+          weightUnit={settings.weightUnit}
+        />
+      </> : editedTemporaryPlan?.status === "draft" && !activeSession ? <>
         <View accessibilityRole="tablist" style={styles.draftDayTabs}>{editedTemporaryPlan.workouts.map((item, index) => <Pressable key={item.id} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index }} accessibilityLabel={`Edit day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => setSelected(index)} style={[styles.draftDay, selectedWorkoutIndex === index && styles.draftDayActive]}><Text style={[styles.draftDayText, selectedWorkoutIndex === index && styles.draftDayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
         <WorkoutEditor
           key={`${editedTemporaryPlan.id}-${workout.id}`}
@@ -637,7 +664,7 @@ export default function App() {
           onSave={saveTemporaryDraftWorkout}
           onCancel={closeTemporaryDraftEditor}
         />
-      </> : <WorkoutScreen workouts={visibleWorkouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} canStart={visibleTemporaryPlan?.status !== "draft"} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} replacementExerciseId={replacementExerciseId} preferredExerciseIds={coachingProfile.preferredExerciseIds} onChooseReplacement={chooseReplacement} onCancelReplacement={() => setReplacementExerciseId(null)} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} addingExercise={addingExercise} onChooseAddition={chooseAddition} onCancelAddition={() => setAddingExercise(false)} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} recommendations={recommendations} onApplyRecommendation={(recommendation, weight) => decideRecommendation(recommendation, weight)} onRejectRecommendation={(recommendation) => decideRecommendation(recommendation, recommendation.currentWeight, true)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByThreeWorkingLoad} onSummaryChange={changeExerciseSummary} onSummaryComplete={finishExerciseSummary} onSummaryReopen={reopenSummary} />}
+      </> : <WorkoutScreen workouts={visibleWorkouts} selectedWorkoutIndex={selectedWorkoutIndex} displayedWorkout={displayedWorkout} activeSession={activeSession} deloadEnabled={deloadWorkoutIds.has(workout.id)} onDeloadToggle={toggleDeload} onSelect={setSelected} onBegin={beginWorkout} onEditRoutine={editRoutine} setupScroll={routineScroll} canStart={visibleTemporaryPlan?.status !== "draft"} onSetChange={updateSet} onFinish={finishWorkout} onCancel={cancelWorkout} onReplaceExercise={openReplacement} replacementExerciseId={replacementExerciseId} preferredExerciseIds={coachingProfile.preferredExerciseIds} onChooseReplacement={chooseReplacement} onCancelReplacement={() => setReplacementExerciseId(null)} onRemoveExercise={requestExerciseRemoval} onAddExercise={openExerciseAddition} addingExercise={addingExercise} onChooseAddition={chooseAddition} onCancelAddition={() => setAddingExercise(false)} onLoadingType={setLoadingType} onAddSet={addExerciseSet} onRemoveSet={removeExerciseSet} onMoveExercise={moveExercise} onNotesChange={(notes) => setActiveSession((current) => current ? { ...current, notes } : current)} weightUnit={settings.weightUnit} defaultRestSeconds={settings.defaultRestSeconds} onFocusedExerciseChange={focusExercise} onExerciseLayout={registerExerciseLayout} onWorkingLoadChange={setThreeByThreeWorkingLoad} onSummaryChange={changeExerciseSummary} onSummaryComplete={finishExerciseSummary} onSummaryReopen={reopenSummary} />}
     </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;

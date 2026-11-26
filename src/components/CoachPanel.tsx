@@ -4,13 +4,14 @@ import { CoachingRecommendation } from "../domain/coaching";
 import { displayExerciseWeight, exerciseWeightLabel, storedExerciseWeight, WeightUnit } from "../domain/training";
 
 type CoachPanelProps = {
+  workoutTitle: string;
   recommendations: CoachingRecommendation[];
   onApply: (recommendation: CoachingRecommendation, weight: number) => void;
   onReject: (recommendation: CoachingRecommendation) => void;
   weightUnit: WeightUnit;
 };
 
-export function CoachPanel({ recommendations, onApply, onReject, weightUnit }: CoachPanelProps) {
+export function CoachPanel({ workoutTitle, recommendations, onApply, onReject, weightUnit }: CoachPanelProps) {
   const [weights, setWeights] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export function CoachPanel({ recommendations, onApply, onReject, weightUnit }: C
   if (!recommendations.length) return null;
   return <View style={styles.panel}>
     <Text style={styles.eyebrow}>PERSONAL COACH</Text>
-    <Text style={styles.title}>Review today’s adjustments</Text>
+    <Text style={styles.title}>Load suggestions for {workoutTitle}</Text>
     <Text style={styles.intro}>Built from your completed workouts. You stay in control of every load.</Text>
     {recommendations.map((item) => {
       const weight = weights[item.id] ?? item.suggestedWeight;
