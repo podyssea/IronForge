@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Keyboard, StyleSheet, View, type LayoutRectangle } from "react-native";
 import { workoutExerciseBlocks, type Exercise, type RoutineEdit } from "../domain/training";
 import { RoutineExerciseRow } from "./RoutineExerciseRow";
+import { DeadliftPrescriptionControls } from "./DeadliftPrescriptionControls";
+import { CONVENTIONAL_DEADLIFT_ID } from "../domain/deadlift";
 
 export type RoutineScroll = {
   offset: () => number;
@@ -126,23 +128,25 @@ export function RoutineExerciseList({
         onLayout={({ nativeEvent }) => layouts.current.set(blockId, nativeEvent.layout)}
         style={[styles.block, isDragging && styles.lifted, translateY !== 0 && { transform: [{ translateY }] }]}
       >
-        {block.map(({ id, name }) => <View key={id}>
+        {block.map((exercise) => <View key={exercise.id}>
           <RoutineExerciseRow
-            name={name}
-            position={positions.get(id) ?? 1}
-            isOpen={openExerciseId === id}
+            name={exercise.name}
+            position={positions.get(exercise.id) ?? 1}
+            isOpen={openExerciseId === exercise.id}
             canDelete={exercises.length > 1}
             canMoveUp={index > 0}
             canMoveDown={index < blocks.length - 1}
-            onReveal={(open) => onReveal(open ? id : null)}
-            onReplace={() => onReplace(id)}
-            onDelete={() => onDelete(id)}
-            onMove={(direction) => onEdit({ type: "move", exerciseId: id, direction })}
-            onDragStart={(pageY) => startDrag(id, index, pageY)}
+            onReveal={(open) => onReveal(open ? exercise.id : null)}
+            onReplace={() => onReplace(exercise.id)}
+            onDelete={() => onDelete(exercise.id)}
+            onMove={(direction) => onEdit({ type: "move", exerciseId: exercise.id, direction })}
+            onDragStart={(pageY) => startDrag(exercise.id, index, pageY)}
             onDragMove={updateDrag}
             onDragEnd={endDrag}
           />
-          {picker?.exerciseId === id && picker.content}
+          {picker?.exerciseId === exercise.id ? picker.content
+            : exercise.id === CONVENTIONAL_DEADLIFT_ID && <DeadliftPrescriptionControls exercise={exercise}
+              onChange={(changes) => onEdit({ type: "deadlift-prescription", exerciseId: exercise.id, ...changes })} />}
         </View>)}
       </View>;
     })}

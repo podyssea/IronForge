@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { calculateDeadliftPlan, DEADLIFT_REP_SCHEMES, deadliftWarmup } from "./deadlift";
 import { addExerciseToWorkoutDraft, addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, completeExerciseSummary, createCustomExercise, displayExerciseWeight, displayWeight, editWorkoutRoutine, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, moveWorkoutExercise, performedExercise, progression, removeExerciseFromWorkoutDraft, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, repeatSessionFromRecord, replaceExerciseInWorkoutDraft, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadExerciseSummarySession, startDeloadSession, startExerciseSummarySession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
@@ -159,6 +160,91 @@ describe("exercise performance contract", () => {
 });
 
 describe("active session lifecycle", () => {
+  const deadliftId = "conventional-deadlift";
+  const deadliftWorkout = {
+    id: "deadlift-day", title: "Deadlift day", focus: "Strength",
+    exercises: [{
+      id: deadliftId, name: "Conventional Deadlift", targetSets: 3, repRange: [3, 5] as [number, number],
+      lastWeight: 165, lastReps: 3, sets: Array.from({ length: 3 }, () => ({ weight: 165, reps: 3, completed: false })),
+    }],
+  };
+
+  it("rounds warm-ups to paired plates, adds a single on lower-rep days, and skips duplicate or working loads", () => {
+    expect(deadliftWarmup(140, 5)).toEqual([
+      { weight: 55, reps: 5 }, { weight: 85, reps: 3 }, { weight: 110, reps: 2 }, { weight: 125, reps: 1 },
+    ]);
+    expect(deadliftWarmup(100, 8)).toEqual([
+      { weight: 40, reps: 5 }, { weight: 60, reps: 3 }, { weight: 80, reps: 2 },
+    ]);
+    expect(deadliftWarmup(25, 3)).toEqual([{ weight: 20, reps: 5 }]);
+    expect(deadliftWarmup(20, 3)).toEqual([]);
+  });
+
+  it("calculates every working and warm-up set from a completed 160 kg triple", () => {
+    expect(calculateDeadliftPlan("five-by-five", 160)?.workingSets)
+      .toEqual(Array.from({ length: 5 }, () => ({ reps: 5, weight: 140 })));
+    expect(calculateDeadliftPlan("three-by-three", 160)?.workingSets)
+      .toEqual(Array.from({ length: 3 }, () => ({ reps: 3, weight: 150 })));
+    expect(calculateDeadliftPlan("descending", 160)).toEqual({
+      warmups: [{ weight: 55, reps: 5 }, { weight: 85, reps: 3 }, { weight: 110, reps: 2 }, { weight: 125, reps: 1 }],
+      workingSets: [{ weight: 140, reps: 5 }, { weight: 145, reps: 4 }, { weight: 150, reps: 3 }, { weight: 155, reps: 2 }, { weight: 155, reps: 2 }],
+    });
+    expect(calculateDeadliftPlan("descending", 162.5)).toBeUndefined();
+    expect(calculateDeadliftPlan("descending", 20)?.warmups).toEqual([]);
+    expect(calculateDeadliftPlan("three-by-three", 160, true)?.workingSets[0].weight).toBe(110);
+    expect(DEADLIFT_REP_SCHEMES.map(({ label }) => label)).toEqual(expect.arrayContaining(["5×5", "3×3", "5, 4, 3, 2, 2"]));
+  });
+
+  it("completes the exact deadlift ladder and excludes the warm-ups and reference triple from history", () => {
+    const session = startExerciseSummarySession(deadliftWorkout, []);
+    const chosen = updateExerciseSummary(session, deadliftId, { deadliftCalculator: { schemeId: "descending" } });
+    const ladder = updateExerciseSummary(chosen, deadliftId, { deadliftCalculator: { referenceTripleKg: 160 } });
+    expect(ladder.exercises[0].deadliftCalculator).toEqual({ schemeId: "descending", referenceTripleKg: 160 });
+    expect(ladder.exercises[0].sets).toBe(session.exercises[0].sets);
+    const complete = completeExerciseSummary(ladder, deadliftId);
+    const record = completeActiveSession(complete);
+    expect(isExerciseSummarySessionComplete(complete)).toBe(true);
+    expect(completeExerciseSummary(complete, deadliftId)).toBe(complete);
+    expect(record.exercises[0].deadliftCalculator).toBeUndefined();
+    expect(record.exercises[0].sets.map(({ weight, reps, completed }) => [weight, reps, completed])).toEqual([
+      [140, 5, true], [145, 4, true], [150, 3, true], [155, 2, true], [155, 2, true],
+    ]);
+    expect(record.exercises[0]).toMatchObject({ lastWeight: 155, lastReps: 2 });
+    expect(record.volume).toBe(2350);
+    expect(isExerciseSummarySessionComplete(reopenExerciseSummary(complete, deadliftId))).toBe(false);
+    expect(applySessionPerformance([deadliftWorkout], complete)[0].exercises[0]).toMatchObject({ targetSets: 3, repRange: [3, 5] });
+  });
+
+  it("requires a complete deadlift plan and logs every rep for a straight-set scheme", () => {
+    const session = startExerciseSummarySession(deadliftWorkout, []);
+    expect(session.exercises[0]).toMatchObject({ targetSets: 3, repRange: [3, 5], lastWeight: 0 });
+    expect(completeExerciseSummary(session, deadliftId)).toBe(session);
+    const chosen = updateExerciseSummary(session, deadliftId, { deadliftCalculator: { schemeId: "five-by-five" } });
+    expect(completeExerciseSummary(chosen, deadliftId)).toBe(chosen);
+    const planned = updateExerciseSummary(chosen, deadliftId, { deadliftCalculator: { referenceTripleKg: 160 } });
+    const record = completeActiveSession(completeExerciseSummary(planned, deadliftId));
+    expect(record.exercises[0].sets).toEqual(Array.from({ length: 5 }, () => ({ weight: 140, reps: 5, completed: true })));
+    expect(record.volume).toBe(3500);
+  });
+
+  it("prefills from the latest eligible deadlift prescription and rounds a deload down to a loadable weight", () => {
+    const session = startExerciseSummarySession(deadliftWorkout, []);
+    const olderMatch = {
+      ...completeActiveSession(session, new Date("2026-11-22")),
+      exercises: [{ ...session.exercises[0], sets: Array.from({ length: 2 }, () => ({ weight: 150, reps: null, completed: true })) }],
+    };
+    const newerMismatch = {
+      ...olderMatch, id: "triples", completedAt: "2026-11-24",
+      exercises: [{ ...olderMatch.exercises[0], repRange: [3, 3] as [number, number] }],
+    };
+    const newerDeload = { ...olderMatch, id: "deload", completedAt: "2026-11-25", deload: true };
+    const records = [newerMismatch, newerDeload, olderMatch];
+    expect(startExerciseSummarySession(deadliftWorkout, records).exercises[0].sets)
+      .toEqual(Array.from({ length: 3 }, () => ({ weight: 150, reps: null, completed: false })));
+    expect(startDeloadExerciseSummarySession(deadliftWorkout, records).exercises[0].sets[0].weight).toBe(110);
+    expect(startDeloadExerciseSummarySession(deadliftWorkout, [newerMismatch]).exercises[0].sets[0].weight).toBe(0);
+  });
+
   it("starts summary logging from the latest valid non-deload performance without copying reps", () => {
     const workout = initialFourDaySplit()[0];
     const historicalExercise = {

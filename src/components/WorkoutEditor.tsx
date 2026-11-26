@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { Equipment, ExerciseDefinition } from "../domain/exerciseLibrary";
-import { addExerciseToWorkoutDraft, Exercise, moveWorkoutExercise, removeExerciseFromWorkoutDraft, replaceExerciseInWorkoutDraft, SessionRecord, Workout } from "../domain/training";
+import { addExerciseToWorkoutDraft, Exercise, moveWorkoutExercise, removeExerciseFromWorkoutDraft, replaceExerciseInWorkoutDraft, SessionRecord, updateExercisePrescription, Workout } from "../domain/training";
 import { ExerciseEditorRow } from "./ExerciseEditorRow";
 import { InlineExercisePicker } from "./InlineExercisePicker";
 
@@ -75,6 +75,10 @@ export function WorkoutEditor({ scope, workout, knownExercises = [], records = [
           onReplace={() => setPicker({ mode: "replace", exerciseId: exercise.id })}
           onMove={(direction) => setDraft((current) => moveWorkoutExercise(current, exercise.id, direction))}
           onRemove={() => requestRemoval(exercise)}
+          onPrescriptionChange={(changes) => setDraft((current) => ({
+            ...current,
+            exercises: current.exercises.map((item) => item.id === exercise.id ? updateExercisePrescription(item, changes) : item),
+          }))}
         />;
       })}
       <Pressable accessibilityRole="button" accessibilityLabel="Add exercise" onPress={() => setPicker({ mode: "add" })} style={({ pressed }) => [styles.add, pressed && styles.pressed]}><Text style={styles.addText}>＋ ADD EXERCISE</Text></Pressable>

@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getExerciseDefinition } from "../domain/exerciseLibrary";
 import { Exercise } from "../domain/training";
+import { CONVENTIONAL_DEADLIFT_ID } from "../domain/deadlift";
+import { DeadliftPrescriptionControls } from "./DeadliftPrescriptionControls";
 
 type ExerciseEditorRowProps = {
   exercise: Exercise;
@@ -11,9 +13,10 @@ type ExerciseEditorRowProps = {
   onReplace: () => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
+  onPrescriptionChange: (changes: { targetSets?: number; repRange?: [number, number] }) => void;
 };
 
-export function ExerciseEditorRow({ exercise, position, canMoveUp, canMoveDown, canRemove, onReplace, onMove, onRemove }: ExerciseEditorRowProps) {
+export function ExerciseEditorRow({ exercise, position, canMoveUp, canMoveDown, canRemove, onReplace, onMove, onRemove, onPrescriptionChange }: ExerciseEditorRowProps) {
   const definition = getExerciseDefinition(exercise.id);
   const metadata = definition
     ? `${definition.primaryMuscles.map(readable).join(", ")} · ${definition.equipment.map(readable).join(", ")}`
@@ -25,9 +28,10 @@ export function ExerciseEditorRow({ exercise, position, canMoveUp, canMoveDown, 
       <View style={styles.copy}>
         <Text style={styles.name}>{exercise.name}</Text>
         <Text style={styles.metadata}>{metadata}</Text>
-        <Text style={styles.prescription}>{exercise.targetSets} sets · {exercise.repRange[0]}–{exercise.repRange[1]} reps{exercise.restSeconds ? ` · ${exercise.restSeconds} sec rest` : ""}</Text>
+        {exercise.id !== CONVENTIONAL_DEADLIFT_ID && <Text style={styles.prescription}>{exercise.targetSets} sets · {exercise.repRange[0]}–{exercise.repRange[1]} reps{exercise.restSeconds ? ` · ${exercise.restSeconds} sec rest` : ""}</Text>}
       </View>
     </View>
+    {exercise.id === CONVENTIONAL_DEADLIFT_ID && <DeadliftPrescriptionControls exercise={exercise} onChange={onPrescriptionChange} />}
     <Pressable accessibilityRole="button" accessibilityLabel={`Replace ${exercise.name}`} onPress={onReplace} style={({ pressed }) => [styles.replace, pressed && styles.pressed]}><Text style={styles.replaceText}>REPLACE EXERCISE</Text></Pressable>
     <View style={styles.actions}>
       <Pressable accessibilityRole="button" accessibilityLabel={`Move ${exercise.name} up`} accessibilityState={{ disabled: !canMoveUp }} disabled={!canMoveUp} onPress={() => onMove(-1)} style={({ pressed }) => [styles.action, !canMoveUp && styles.disabled, pressed && styles.pressed]}><Text style={styles.actionText}>↑ MOVE UP</Text></Pressable>
