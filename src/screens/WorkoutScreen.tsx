@@ -3,10 +3,10 @@ import { Image, LayoutChangeEvent, Pressable, StyleSheet, Text, TextInput, View 
 import { ExerciseCard } from "../components/ExerciseCard";
 import { ExerciseFocusCard } from "../components/ExerciseFocusCard";
 import { InlineExercisePicker } from "../components/InlineExercisePicker";
-import { CoachPanel } from "../components/CoachPanel";
-import { CoachingRecommendation } from "../domain/coaching";
+import type { RoutineScroll } from "../components/RoutineExerciseList";
+import { WorkoutSetupScreen } from "./WorkoutSetupScreen";
 import { ExerciseDefinition } from "../domain/exerciseLibrary";
-import { ActiveSession, displayWeight, Exercise, ExerciseSummaryChanges, LoadingType, sessionVolume, setValidationError, SetLog, WeightUnit, weightUnitLabel, Workout } from "../domain/training";
+import { ActiveSession, displayWeight, Exercise, ExerciseSummaryChanges, LoadingType, RoutineEdit, sessionVolume, setValidationError, SetLog, WeightUnit, weightUnitLabel, Workout } from "../domain/training";
 import { cancelRestNotification, scheduleRestNotification } from "../device/restNotifications";
 
 type WorkoutScreenProps = {
@@ -19,6 +19,8 @@ type WorkoutScreenProps = {
   onSelect: (index: number) => void;
   onBegin: () => void;
   canStart?: boolean;
+  onEditRoutine: (edit: RoutineEdit) => void;
+  setupScroll: RoutineScroll;
   onSetChange: (id: string, set: number, changes: Partial<SetLog>) => void;
   onFinish: () => void;
   onCancel: () => void;
@@ -34,9 +36,6 @@ type WorkoutScreenProps = {
   onCancelAddition: () => void;
   onLoadingType: (id: string, loadingType: LoadingType) => void;
   onNotesChange: (notes: string) => void;
-  recommendations: CoachingRecommendation[];
-  onApplyRecommendation: (recommendation: CoachingRecommendation, weight: number) => void;
-  onRejectRecommendation: (recommendation: CoachingRecommendation) => void;
   weightUnit: WeightUnit;
   onAddSet: (id: string) => void;
   onRemoveSet: (id: string) => void;
@@ -50,7 +49,7 @@ type WorkoutScreenProps = {
   onSummaryReopen: (id: string) => void;
 };
 
-export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, canStart = true, onSetChange, onFinish, onCancel, onReplaceExercise, replacementExerciseId, preferredExerciseIds, onChooseReplacement, onCancelReplacement, onRemoveExercise, onAddExercise, addingExercise, onChooseAddition, onCancelAddition, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onNotesChange, recommendations, onApplyRecommendation, onRejectRecommendation, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout, onWorkingLoadChange, onSummaryChange, onSummaryComplete, onSummaryReopen }: WorkoutScreenProps) {
+export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout, activeSession, deloadEnabled, onDeloadToggle, onSelect, onBegin, canStart = true, onEditRoutine, setupScroll, onSetChange, onFinish, onCancel, onReplaceExercise, replacementExerciseId, preferredExerciseIds, onChooseReplacement, onCancelReplacement, onRemoveExercise, onAddExercise, addingExercise, onChooseAddition, onCancelAddition, onLoadingType, onAddSet, onRemoveSet, onMoveExercise, onNotesChange, weightUnit, defaultRestSeconds, onFocusedExerciseChange, onExerciseLayout, onWorkingLoadChange, onSummaryChange, onSummaryComplete, onSummaryReopen }: WorkoutScreenProps) {
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const [restNotificationId, setRestNotificationId] = useState<string | null>(null);
   const [restExerciseName, setRestExerciseName] = useState("Exercise");
@@ -119,7 +118,22 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
     setHighlightedExerciseId(nextExercise?.id ?? null);
     onFocusedExerciseChange(nextExercise?.id ?? null);
   }
-  const summaryMode = activeSession?.exerciseLogFormat === "exercise-summary-v1";
+  if (!activeSession) return <WorkoutSetupScreen
+    key={displayedWorkout.id}
+    workouts={workouts}
+    selectedWorkoutIndex={selectedWorkoutIndex}
+    workout={displayedWorkout}
+    canStart={canStart}
+    deloadEnabled={deloadEnabled}
+    preferredExerciseIds={preferredExerciseIds}
+    onSelect={onSelect}
+    onBegin={onBegin}
+    onEditRoutine={onEditRoutine}
+    scroll={setupScroll}
+    onDeloadToggle={onDeloadToggle}
+  />;
+
+  const summaryMode = activeSession.exerciseLogFormat === "exercise-summary-v1";
   const completedSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set, index) => set.completed && (summaryMode || !setValidationError(set, exercise, index))).length, 0);
   const totalSets = displayedWorkout.exercises.reduce((sum, exercise) => sum + (summaryMode ? exercise.sets.length : exercise.targetSets), 0);
   const volume = sessionVolume(displayedWorkout.exercises);
@@ -133,17 +147,14 @@ export function WorkoutScreen({ workouts, selectedWorkoutIndex, displayedWorkout
   });
 
   return <>
-    <View style={styles.topline}><View style={styles.brand}><Image source={require("../../assets/icon.png")} resizeMode="contain" style={styles.brandLogo} accessibilityLabel="GymJournal" /><Text style={styles.brandText}>GYMJOURNAL</Text></View><Text style={styles.live}>● {activeSession ? "SESSION ACTIVE" : "READY"}</Text></View>
-    <View style={styles.kickerRow}><Text style={styles.kicker}>{activeSession ? "WORKOUT IN PROGRESS" : canStart ? "TODAY'S TRAINING" : "TEMPORARY PLAN DRAFT"}</Text><Text style={styles.currentDate}>{currentDate}</Text></View><Text style={styles.title}>{displayedWorkout.title.split(" · ").pop()}</Text>
+    <View style={styles.topline}><View style={styles.brand}><Image source={require("../../assets/icon.png")} resizeMode="contain" style={styles.brandLogo} accessibilityLabel="GymJournal" /><Text style={styles.brandText}>GYMJOURNAL</Text></View><Text style={styles.live}>● SESSION ACTIVE</Text></View>
+    <View style={styles.kickerRow}><Text style={styles.kicker}>WORKOUT IN PROGRESS</Text><Text style={styles.currentDate}>{currentDate}</Text></View><Text style={styles.title}>{displayedWorkout.title.split(" · ").pop()}</Text>
     {(displayedWorkout.estimatedDurationMinutes || displayedWorkout.strengthPriority) && <View style={styles.prescription}><Text style={styles.prescriptionText}>{displayedWorkout.estimatedDurationMinutes ? `EST. ${displayedWorkout.estimatedDurationMinutes[0]}–${displayedWorkout.estimatedDurationMinutes[1]} MIN` : ""}{displayedWorkout.estimatedDurationMinutes && displayedWorkout.strengthPriority ? " · " : ""}{displayedWorkout.strengthPriority ? `PRIORITY: ${displayedWorkout.strengthPriority}` : ""}</Text></View>}
     <View style={styles.dayTabs}>{workouts.map((item, index) => <Pressable key={item.id} disabled={Boolean(activeSession)} accessibilityRole="tab" accessibilityState={{ selected: selectedWorkoutIndex === index, disabled: Boolean(activeSession) }} accessibilityLabel={`Day ${index + 1}: ${item.title.split(" · ").pop()}`} onPress={() => onSelect(index)} style={[styles.day, selectedWorkoutIndex === index && styles.dayActive, activeSession && selectedWorkoutIndex !== index && styles.dayDisabled]}><Text style={[styles.dayText, selectedWorkoutIndex === index && styles.dayTextActive]}>DAY {index + 1}</Text></Pressable>)}</View>
     {activeSession && <View style={styles.activeBanner}><Text style={styles.activeBannerTitle}>{activeSession.deload ? "DELOAD ACTIVE · 75% WORKING LOAD" : "SESSION SAVED AUTOMATICALLY"}</Text><Text style={styles.activeBannerText}>Started {new Date(activeSession.startedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Saved automatically; resume anytime from the Log tab.</Text></View>}
     {activeSession && restEndsAt && <View style={styles.restTimer}><View><Text style={styles.restLabel}>{restRemaining ? `REST · ${restExerciseName.toUpperCase()}` : "REST COMPLETE"}</Text><Text style={styles.restTime}>{String(Math.floor(restRemaining / 60)).padStart(2, "0")}:{String(restRemaining % 60).padStart(2, "0")}</Text></View><View style={styles.restActions}><Pressable onPress={addRestTime} style={styles.restButton}><Text style={styles.restButtonText}>+30 SEC</Text></Pressable><Pressable onPress={stopRest} style={styles.restButton}><Text style={styles.restButtonText}>SKIP</Text></Pressable></View></View>}
     {activeSession && <View style={styles.notes}><Text style={styles.notesLabel}>SESSION NOTES</Text><TextInput value={activeSession.notes} onChangeText={onNotesChange} placeholder="How did the session feel?" placeholderTextColor="#687067" multiline style={styles.notesInput} /></View>}
-    {!activeSession && <CoachPanel recommendations={recommendations} onApply={onApplyRecommendation} onReject={onRejectRecommendation} weightUnit={weightUnit} />}
     <View style={styles.summary}><View><Text style={styles.summaryNumber}>{completedSets}<Text style={styles.dim}>/{totalSets}</Text></Text><Text style={styles.summaryLabel}>SETS DONE</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.summaryNumber}>{summaryMode ? "—" : displayWeight(volume, weightUnit).toLocaleString()}</Text><Text style={styles.summaryLabel}>{summaryMode ? "REPS UNTRACKED" : `${weightUnitLabel(weightUnit).toUpperCase()} VOLUME`}</Text></View><View style={styles.summaryDivider}/><View><Text style={styles.focus}>{displayedWorkout.focus}</Text><Text style={styles.summaryLabel}>SESSION FOCUS</Text></View></View>
-    {!activeSession && canStart && <><Pressable accessibilityRole="button" accessibilityState={{ selected: deloadEnabled }} onPress={onDeloadToggle} style={[styles.deload, deloadEnabled && styles.deloadActive]}><Text style={[styles.deloadText, deloadEnabled && styles.deloadTextActive]}>{deloadEnabled ? "✓ DELOAD ON · 75%" : "DELOAD · 75%"}</Text></Pressable><Text style={styles.deloadHint}>Reduces this workout's working weights only</Text><Pressable style={styles.finish} onPress={onBegin}><Text style={styles.finishText}>START WORKOUT</Text><Text style={styles.finishArrow}>→</Text></Pressable></>}
-    {!activeSession && !canStart && <Text style={styles.draftHint}>Edit this draft as needed, then activate the plan from the Program tab before starting it.</Text>}
     {summaryMode && focusedExercise ? <><ExerciseFocusCard exercise={focusedExercise} position={displayedWorkout.exercises.findIndex((exercise) => exercise.id === focusedExercise.id) + 1} total={displayedWorkout.exercises.length} weightUnit={weightUnit} onChange={(changes) => onSummaryChange(focusedExercise.id, changes)} onComplete={() => onSummaryComplete(focusedExercise.id)} onReopen={() => onSummaryReopen(focusedExercise.id)} onReplace={() => onReplaceExercise(focusedExercise.id)} onRemove={displayedWorkout.exercises.length > 1 ? () => onRemoveExercise(focusedExercise.id) : undefined} replacementDropdown={replacementExerciseId === focusedExercise.id ? <InlineExercisePicker exerciseId={focusedExercise.id} excludedIds={displayedWorkout.exercises.filter((item) => item.id !== focusedExercise.id).map((item) => item.id)} preferredIds={preferredExerciseIds} onSelect={onChooseReplacement} onCancel={onCancelReplacement} /> : undefined} /><Text style={styles.queueLabel}>EXERCISE QUEUE · TAP TO FOCUS</Text><View style={styles.queue}>{displayedWorkout.exercises.map((exercise, index) => { const complete = exercise.sets.length > 0 && exercise.sets.every((set) => set.completed); const focused = exercise.id === focusedExercise.id; return <Pressable key={exercise.id} accessibilityRole="button" accessibilityState={{ selected: focused }} onPress={() => onFocusedExerciseChange(exercise.id)} style={[styles.queueItem, focused && styles.queueItemFocused, complete && styles.queueItemComplete]}><Text style={styles.queueIndex}>{complete ? "✓" : String(index + 1).padStart(2, "0")}</Text><Text numberOfLines={1} style={[styles.queueName, focused && styles.queueNameFocused]}>{exercise.name}</Text><Text style={styles.queueSets}>{exercise.sets.length} SETS</Text></Pressable>; })}</View></> : displayedWorkout.exercises.map((exercise, number) => { const pairIndex = exercise.supersetId ? displayedWorkout.exercises.findIndex((item) => item.id !== exercise.id && item.supersetId === exercise.supersetId) : -1; const pair = pairIndex >= 0 ? displayedWorkout.exercises[pairIndex] : undefined; const groupNumber = exercise.supersetId ? supersetOrder.get(exercise.supersetId) : undefined; const member = pairIndex > number ? "1" : "2"; const blockStart = pairIndex >= 0 ? Math.min(number, pairIndex) : number; const blockEnd = pairIndex >= 0 ? Math.max(number, pairIndex) : number; const replacementDropdown = replacementExerciseId === exercise.id ? <InlineExercisePicker exerciseId={exercise.id} excludedIds={displayedWorkout.exercises.filter((item) => item.id !== exercise.id).map((item) => item.id)} preferredIds={preferredExerciseIds} onSelect={onChooseReplacement} onCancel={onCancelReplacement} /> : undefined; return <ExerciseCard key={exercise.id} exercise={exercise} number={number + 1} editable={Boolean(activeSession)} expanded={expandedExerciseIds.has(exercise.id)} highlighted={Boolean(activeSession) && highlightedExerciseId === exercise.id} onToggleExpanded={toggleExerciseExpanded} onExerciseCompleted={advanceFromExercise} onChange={onSetChange} onReplace={onReplaceExercise} replacementDropdown={replacementDropdown} onRemoveExercise={displayedWorkout.exercises.length > 1 ? onRemoveExercise : undefined} onLoadingType={onLoadingType} onAddSet={onAddSet} onRemoveSet={onRemoveSet} onMove={onMoveExercise} canMoveUp={blockStart > 0} canMoveDown={blockEnd < displayedWorkout.exercises.length - 1} weightUnit={weightUnit} onSetCompleted={startRest} onLayout={onExerciseLayout} onWorkingLoadChange={onWorkingLoadChange} supersetLabel={groupNumber ? `${groupNumber} · A${member}` : undefined} supersetPartnerName={pair?.name} />; })}
     <Pressable onPress={onAddExercise} style={styles.addExercise}><Text style={styles.addExerciseText}>＋ ADD EXERCISE TO WORKOUT</Text></Pressable>
     {addingExercise && <InlineExercisePicker mode="add" exerciseId="" excludedIds={displayedWorkout.exercises.map((exercise) => exercise.id)} preferredIds={preferredExerciseIds} onSelect={onChooseAddition} onCancel={onCancelAddition} />}
@@ -160,8 +171,6 @@ const styles = StyleSheet.create({
   notes: { backgroundColor: "#1a1f1a", borderRadius: 8, padding: 12, marginTop: 10 }, notesLabel: { color: "#90988e", fontSize: 9, fontWeight: "900", letterSpacing: .8 }, notesInput: { color: "#eef1eb", fontSize: 12, lineHeight: 18, minHeight: 54, textAlignVertical: "top", marginTop: 7 },
   summary: { backgroundColor: "#1a1f1a", borderRadius: 10, marginTop: 16, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, summaryNumber: { color: "#f5f6f0", fontSize: 23, fontWeight: "800" }, dim: { color: "#727a70" }, summaryLabel: { color: "#7d857c", fontSize: 8, fontWeight: "800", letterSpacing: .8, marginTop: 4 }, summaryDivider: { height: 32, width: 1, backgroundColor: "#303730" }, focus: { color: "#e1e6dd", fontSize: 10, fontWeight: "700", maxWidth: 70 },
   finish: { height: 58, borderRadius: 9, backgroundColor: "#d8ff38", marginTop: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }, finishText: { color: "#15190f", fontWeight: "900", fontSize: 13, letterSpacing: 1 }, finishArrow: { color: "#15190f", fontSize: 22, fontWeight: "700" },
-  deload: { height: 46, borderRadius: 8, borderWidth: 1, borderColor: "#65705f", marginTop: 16, alignItems: "center", justifyContent: "center" }, deloadActive: { backgroundColor: "#d8ff38", borderColor: "#d8ff38" }, deloadText: { color: "#d8ff38", fontSize: 10, fontWeight: "900", letterSpacing: .9 }, deloadTextActive: { color: "#15190f" }, deloadHint: { color: "#7d857c", fontSize: 9, textAlign: "center", marginTop: 6 },
-  draftHint: { color: "#a9b56e", fontSize: 10, lineHeight: 15, textAlign: "center", marginTop: 16 },
   cancel: { height: 46, borderRadius: 8, borderColor: "#6e7770", borderWidth: 1, marginTop: 10, alignItems: "center", justifyContent: "center" }, cancelText: { color: "#aeb5ad", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
   addExercise: { height: 46, borderRadius: 8, borderColor: "#d8ff38", borderWidth: 1, marginTop: 16, alignItems: "center", justifyContent: "center" }, addExerciseText: { color: "#d8ff38", fontSize: 10, fontWeight: "900", letterSpacing: .8 },
   restTimer: { backgroundColor: "#d8ff38", borderRadius: 9, marginTop: 10, padding: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, restLabel: { color: "#35400f", fontSize: 8, fontWeight: "900", letterSpacing: .8 }, restTime: { color: "#15190f", fontSize: 27, fontWeight: "900", marginTop: 1 }, restActions: { flexDirection: "row", gap: 6 }, restButton: { borderWidth: 1, borderColor: "#697a1f", borderRadius: 5, paddingHorizontal: 9, paddingVertical: 8 }, restButtonText: { color: "#27300d", fontSize: 8, fontWeight: "900" },

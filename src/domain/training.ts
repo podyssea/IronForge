@@ -1,3 +1,5 @@
+import type { ExerciseDefinition } from "./exerciseLibrary";
+
 export type WeightUnit = "kg" | "lb";
 export type CalendarDate = string & { readonly __brand: "CalendarDate" };
 export type SetLog = { weight: number; reps: number | null; completed: boolean };
@@ -740,6 +742,28 @@ export function removeWorkoutExercise(workouts: Workout[], workoutId: string, ex
   return workouts.map((workout) => workout.id === workoutId ? removeExerciseFromWorkoutDraft(workout, exerciseId) : workout);
 }
 
+export type RoutineEdit =
+  | { type: "add"; exercise: ExerciseDefinition }
+  | { type: "replace"; exerciseId: string; exercise: ExerciseDefinition }
+  | { type: "remove"; exerciseId: string }
+  | { type: "reorder"; exerciseId: string; targetExerciseId: string }
+  | { type: "move"; exerciseId: string; direction: -1 | 1 };
+
+export function editWorkoutRoutine(workouts: Workout[], workoutId: string, edit: RoutineEdit, records: SessionRecord[]): Workout[] {
+  switch (edit.type) {
+    case "add":
+      return addWorkoutExercise(workouts, workoutId, edit.exercise, records);
+    case "replace":
+      return replaceWorkoutExercise(workouts, workoutId, edit.exerciseId, edit.exercise, records);
+    case "remove":
+      return removeWorkoutExercise(workouts, workoutId, edit.exerciseId);
+    case "move":
+      return workouts.map((workout) => workout.id === workoutId ? moveWorkoutExercise(workout, edit.exerciseId, edit.direction) : workout);
+    case "reorder":
+      return workouts.map((workout) => workout.id === workoutId ? reorderWorkoutExercise(workout, edit.exerciseId, edit.targetExerciseId) : workout);
+  }
+}
+
 export function progression(exercise: Exercise, unit: WeightUnit = "kg"): string {
   const completed = workingSets(exercise).filter((set): set is TrackedSetLog => set.completed && hasTrackedReps(set));
   const best = bestCompletedWorkingSet(exercise);
@@ -862,19 +886,33 @@ export function normalizeExercisePrescription(exercise: Exercise): Exercise {
   };
 }
 
-export function moveWorkoutExercise(workout: Workout, exerciseId: string, direction: -1 | 1): Workout {
-  const blocks = workout.exercises.reduce<Exercise[][]>((result, exercise) => {
+export function workoutExerciseBlocks(exercises: Exercise[]): Exercise[][] {
+  return exercises.reduce<Exercise[][]>((result, exercise) => {
     const previous = result.at(-1);
     if (exercise.supersetId && previous?.[0].supersetId === exercise.supersetId) previous.push(exercise);
     else result.push([exercise]);
     return result;
   }, []);
+}
+
+export function moveWorkoutExercise(workout: Workout, exerciseId: string, direction: -1 | 1): Workout {
+  const blocks = workoutExerciseBlocks(workout.exercises);
   const index = blocks.findIndex((block) => block.some((exercise) => exercise.id === exerciseId));
   const destination = index + direction;
   if (index < 0 || destination < 0 || destination >= blocks.length) return workout;
   const reordered = [...blocks];
   [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
   return { ...workout, exercises: reordered.flat() };
+}
+
+function reorderWorkoutExercise(workout: Workout, exerciseId: string, targetExerciseId: string): Workout {
+  const blocks = workoutExerciseBlocks(workout.exercises);
+  const source = blocks.findIndex((block) => block.some(({ id }) => id === exerciseId));
+  const target = blocks.findIndex((block) => block.some(({ id }) => id === targetExerciseId));
+  if (source < 0 || target < 0 || source === target) return workout;
+  const [moving] = blocks.splice(source, 1);
+  blocks.splice(target, 0, moving);
+  return { ...workout, exercises: blocks.flat() };
 }
 
 export function toggleWorkoutSuperset(workout: Workout, exerciseId: string): Workout {

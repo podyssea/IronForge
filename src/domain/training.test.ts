@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addExerciseToWorkoutDraft, addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, completeExerciseSummary, createCustomExercise, displayExerciseWeight, displayWeight, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, moveWorkoutExercise, performedExercise, progression, removeExerciseFromWorkoutDraft, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, repeatSessionFromRecord, replaceExerciseInWorkoutDraft, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadExerciseSummarySession, startDeloadSession, startExerciseSummarySession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, workingSets } from "./training";
+import { addExerciseToWorkoutDraft, addWorkoutExercise, applySessionPerformance, applyTrainingPhase, applyWarmupLoads, applyWorkingLoadPreservingWarmups, completeActiveSession, completeExerciseSummary, createCustomExercise, displayExerciseWeight, displayWeight, editWorkoutRoutine, exercisesMissingLoadingType, generateFromStyle, initialFourDaySplit, isExerciseSummarySessionComplete, isSessionComplete, moveWorkoutExercise, performedExercise, progression, removeExerciseFromWorkoutDraft, removeWorkoutExercise, reopenExerciseSummary, repeatExerciseSummarySession, repeatSessionFromRecord, replaceExerciseInWorkoutDraft, replaceWorkoutExercise, resizeActiveExerciseSets, sessionVolume, setValidationError, startActiveSession, startDeloadExerciseSummarySession, startDeloadSession, startExerciseSummarySession, storedExerciseWeight, storedWeight, toggleWorkoutSuperset, updateExercisePrescription, updateExerciseSet, updateExerciseSummary, workingSets } from "./training";
 import { getExerciseDefinition } from "./exerciseLibrary";
 
 describe("program generation", () => {
@@ -686,6 +686,37 @@ describe("modality prescriptions", () => {
 });
 
 describe("workout exercise management", () => {
+  it("drops a superset after a distant block in one routine edit", () => {
+    const workouts = initialFourDaySplit();
+    const workout = toggleWorkoutSuperset(workouts[0], workouts[0].exercises[0].id);
+    const ids = workout.exercises.map(({ id }) => id);
+    const revised = editWorkoutRoutine(
+      [workout, ...workouts.slice(1)], workout.id,
+      { type: "reorder", exerciseId: ids[1], targetExerciseId: ids[4] }, [],
+    );
+    expect(revised[0].exercises.map(({ id }) => id)).toEqual([...ids.slice(2, 5), ...ids.slice(0, 2), ...ids.slice(5)]);
+    expect(revised[0].exercises[0].id).toBe(ids[2]);
+    expect(workout.exercises.map(({ id }) => id)).toEqual(ids);
+  });
+
+  it("applies routine edits to future starts while preserving an existing session and other days", () => {
+    const workouts = initialFourDaySplit();
+    const workout = workouts[0];
+    const originalIds = workout.exercises.map(({ id }) => id);
+    const existingSession = startExerciseSummarySession(workout, []);
+    const addition = getExerciseDefinition("cable-fly")!;
+    const replacement = getExerciseDefinition("dumbbell-bench")!;
+    const added = editWorkoutRoutine(workouts, workout.id, { type: "add", exercise: addition }, []);
+    const replaced = editWorkoutRoutine(added, workout.id, { type: "replace", exerciseId: originalIds[0], exercise: replacement }, []);
+    const removed = editWorkoutRoutine(replaced, workout.id, { type: "remove", exerciseId: originalIds[1] }, []);
+    const edited = editWorkoutRoutine(removed, workout.id, { type: "move", exerciseId: replacement.id, direction: 1 }, []);
+
+    expect(startExerciseSummarySession(edited[0], []).exercises.map(({ id }) => id))
+      .toEqual([originalIds[2], replacement.id, ...originalIds.slice(3), addition.id]);
+    expect(existingSession.exercises.map(({ id }) => id)).toEqual(originalIds);
+    expect(edited.slice(1)).toEqual(workouts.slice(1));
+  });
+
   it("adds a distinct library exercise with its default prescription", () => {
     const workouts = initialFourDaySplit();
     const definition = getExerciseDefinition("cable-fly")!;
